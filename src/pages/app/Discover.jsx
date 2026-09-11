@@ -1,0 +1,807 @@
+import { useEffect, useState, useRef, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
+
+const REPORT_REASONS = [
+  { value: 'fake',      label: 'Perfil falso ou enganoso' },
+  { value: 'offensive', label: 'Conteúdo ofensivo' },
+  { value: 'spam',      label: 'Spam ou publicidade' },
+  { value: 'minor',     label: 'Pessoa menor de idade' },
+  { value: 'other',     label: 'Outro motivo' },
+];
+
+/* ============================================================
+   Festa suave — partículas lentas e discretas
+============================================================ */
+const SOFT_EMOJIS = ['💖', '✨', '💕', '🌸', '💗'];
+const SOFT_COLORS = ['#fb7191', '#fda4b4', '#fecdd6', '#f43f6f'];
+
+function PartyBurst({ active }) {
+  const particles = useMemo(() => {
+    if (!active) return [];
+    const arr = [];
+    const count = 8;
+    for (let i = 0; i < count; i++) {
+      const fromLeft = i % 2 === 0;
+      const emoji = SOFT_EMOJIS[Math.floor(Math.random() * SOFT_EMOJIS.length)];
+      const color = SOFT_COLORS[Math.floor(Math.random() * SOFT_COLORS.length)];
+      const topPct = 25 + Math.random() * 50;
+      const delay = Math.random() * 350;
+      const duration = 1800 + Math.random() * 600;
+      const size = 12 + Math.random() * 10;
+      arr.push({ id: i, fromLeft, emoji, color, topPct, delay, duration, size });
+    }
+    return arr;
+  }, [active]);
+
+  if (!active) return null;
+
+  return (
+    <>
+      {particles.map((p) => (
+        <span
+          key={p.id}
+          className="party-particle"
+          style={{
+            top: `${p.topPct}%`,
+            [p.fromLeft ? 'left' : 'right']: '-30px',
+            fontSize: `${p.size}px`,
+            animation: `${p.fromLeft ? 'partyFromLeft' : 'partyFromRight'} ${p.duration}ms cubic-bezier(0.4, 0, 0.2, 1) ${p.delay}ms forwards`,
+            filter: `drop-shadow(0 0 4px ${p.color})`,
+          }}
+        >
+          {p.emoji}
+        </span>
+      ))}
+    </>
+  );
+}
+
+export default function Discover() {
+  const navigate = useNavigate();
+  const { user, profile: myProfile } = useAuth();
+
+  const [profiles, setProfiles] = useState([]);
+  const [likedIds, setLikedIds] = useState(new Set());
+  const [loading, setLoading] = useState(true);
+  const [balance, setBalance] = useState(0);
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const [contacting, setContacting] = useState(false);
+  const [liking, setLiking] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  const [showActionsSheet, setShowActionsSheet] = useState(false);
+  const [showReportSheet, setShowReportSheet] = useState(false);
+  const [partyActive, setPartyActive] = useState(false);
+
+  // Mobile: CTA escondido por defeito, aparece ao tocar
+  const [showCTA, setShowCTA] = useState(false);
+
+  const feedRef = useRef(null);
+  const jumpingRef = useRef(false);
+  const hasCenteredRef = useRef(false);
+  const lastTapRef = useRef(0);
+  const ctaTimerRef = useRef(null);
+
+  /* ---------- Carregar dados ---------- */
+  useEffect(() => {
+    if (!user) return;
+
+    (async () => {
+      const [profRes, balRes, likesRes] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('id, name, birth_date, city, bio, avatar_url, gender, interests')
+          .eq('onboarding_completed', true)
+          .order('created_at', { ascending: false })
+          .limit(50),
+        supabase
+          .from('contact_balances')
+          .select('balance')
+          .eq('user_id', user.id)
+          .maybeSingle(),
+        supabase.rpc('my_liked_ids'),
+      ]);
+
+      setProfiles(profRes.data || []);
+      setBalance(balRes.data?.balance ?? 0);
+      if (Array.isArray(likesRes.data)) setLikedIds(new Set(likesRes.data));
+      setLoading(false);
+    })();
+  }, [user]);
+
+  /* ---------- Esconder CTA quando muda de perfil ---------- */
+  useEffect(() => {
+    setShowCTA(false);
+    if (ctaTimerRef.current) clearTimeout(ctaTimerRef.current);
+  }, [currentIdx]);
+
+  const revealCTA = () => {
+    setShowCTA(true);
+    if (ctaTimerRef.current) clearTimeout(ctaTimerRef.current);
+    ctaTimerRef.current = setTimeout(() => setShowCTA(false), 4000);
+  };
+
+  /* ---------- Loop infinito ---------- */
+  const MULT = useMemo(() => {
+    const n = profiles.length;
+    if (n === 0) return 1;
+    if (n === 1) return 9;
+    if (n === 2) return 7;
+    if (n <= 4) return 5;
+    if (n <= 8) return 3;
+    return 2;
+  }, [profiles.length]);
+
+  const baseLen = profiles.length;
+
+  const displayProfiles = useMemo(() => {
+    if (baseLen === 0) return [];
+    const arr = [];
+    for (let i = 0; i < MULT; i++) arr.push(...profiles);
+    return arr;
+  }, [profiles, baseLen, MULT]);
+
+  useEffect(() => {
+    if (loading || baseLen === 0) return;
+    if (hasCenteredRef.current) return;
+    const el = feedRef.current;
+    if (!el) return;
+    requestAnimationFrame(() => {
+      const middleBlock = Math.floor(MULT / 2);
+      el.scrollTop = middleBlock * baseLen * el.clientHeight;
+      hasCenteredRef.current = true;
+    });
+  }, [loading, baseLen, MULT]);
+
+  const handleScroll = (e) => {
+    if (baseLen === 0) return;
+    const el = e.currentTarget;
+    const h = el.clientHeight;
+    if (h === 0) return;
+
+    const idx = Math.round(el.scrollTop / h);
+    const realIdx = ((idx % baseLen) + baseLen) % baseLen;
+    setCurrentIdx(realIdx);
+
+    if (jumpingRef.current) return;
+
+    if (idx < baseLen) {
+      jumpingRef.current = true;
+      el.scrollTop = (idx + baseLen) * h;
+      requestAnimationFrame(() => { jumpingRef.current = false; });
+      return;
+    }
+    if (idx >= baseLen * (MULT - 1)) {
+      jumpingRef.current = true;
+      el.scrollTop = (idx - baseLen) * h;
+      requestAnimationFrame(() => { jumpingRef.current = false; });
+      return;
+    }
+  };
+
+  /* ---------- Toggle like ---------- */
+  const toggleLike = async (targetId) => {
+    if (liking) return;
+    if (targetId === user.id) return;
+
+    const wasLiked = likedIds.has(targetId);
+
+    setLiking(true);
+    const { data } = await supabase.rpc('toggle_like', { p_target: targetId });
+    setLiking(false);
+
+    if (!data?.success) return;
+
+    setLikedIds((prev) => {
+      const next = new Set(prev);
+      if (data.liked) next.add(targetId);
+      else next.delete(targetId);
+      return next;
+    });
+
+    if (data.liked && !wasLiked) {
+      setPartyActive(true);
+      if (navigator.vibrate) navigator.vibrate(8);
+      setTimeout(() => setPartyActive(false), 2200);
+    }
+  };
+
+  /* ---------- Toque no card ---------- */
+  const handleCardTap = (targetId, mine) => {
+    const now = Date.now();
+
+    if (now - lastTapRef.current < 300) {
+      // Duplo toque → like
+      if (!mine && !likedIds.has(targetId)) toggleLike(targetId);
+      lastTapRef.current = 0;
+      setShowCTA(false);
+    } else {
+      lastTapRef.current = now;
+      setTimeout(() => {
+        if (lastTapRef.current === now) {
+          // Toque simples → navega para o perfil
+          navigate(`/app/perfil/${targetId}`);
+        }
+      }, 280);
+    }
+  };
+
+  /* ---------- Contactar ---------- */
+  const handleContact = async () => {
+    const target = profiles[currentIdx];
+    if (!target || contacting) return;
+    if (target.id === user.id) return showToast('Este perfil é teu.', 'error');
+
+    setContacting(true);
+    const { data, error } = await supabase.rpc('consume_contact', {
+      target_user_id: target.id,
+    });
+    setContacting(false);
+
+    if (error) return showToast(error.message, 'error');
+
+    if (!data?.success) {
+      const msgs = {
+        no_balance: 'Sem contactos. Compra mais para continuar.',
+        already_contacted: 'Já contactaste esta pessoa.',
+        cannot_contact_self: 'Não podes contactar-te.',
+        blocked: 'Não é possível contactar.',
+        target_banned: 'Perfil indisponível.',
+        target_no_whatsapp: 'Esta pessoa ainda não adicionou WhatsApp.',
+      };
+      return showToast(msgs[data?.error] || 'Erro ao contactar.', 'error');
+    }
+
+    if (!data.already_contacted) {
+      setBalance((b) => Math.max(0, b - 1));
+      showToast('Contacto utilizado com sucesso.', 'success');
+    } else {
+      showToast('A abrir WhatsApp...', 'success');
+    }
+
+    const firstName = target.name?.split(' ')[0] || '';
+    const myName = myProfile?.name?.split(' ')[0] || '';
+    const message = `Olá ${firstName}! Vi o teu perfil no Te Quero e achei interessante${
+      myName ? `. Sou o ${myName}` : ''
+    }. Podemos falar?`;
+
+    const cleanNumber = data.whatsapp_link.replace('https://wa.me/', '');
+    const waLink = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`;
+
+    setTimeout(() => {
+      window.open(waLink, '_blank', 'noopener,noreferrer');
+    }, 300);
+
+    setShowCTA(false);
+  };
+
+  const handleReport = async (reason) => {
+    const target = profiles[currentIdx];
+    if (!target) return;
+    const { data } = await supabase.rpc('report_user', {
+      target_user_id: target.id,
+      reason_text: reason,
+    });
+    setShowReportSheet(false);
+    setShowActionsSheet(false);
+    showToast(
+      data?.success ? 'Denúncia enviada. Obrigado.' : 'Erro ao enviar.',
+      data?.success ? 'success' : 'error'
+    );
+  };
+
+  const handleBlock = async () => {
+    const target = profiles[currentIdx];
+    if (!target) return;
+    const { data } = await supabase.rpc('block_user', { target_user_id: target.id });
+    setShowActionsSheet(false);
+    if (data?.success) {
+      showToast('Utilizador bloqueado.', 'success');
+      setProfiles((prev) => prev.filter((p) => p.id !== target.id));
+    }
+  };
+
+  const handleShare = async () => {
+    const target = profiles[currentIdx];
+    if (!target) return;
+    const shareData = {
+      title: 'Te Quero',
+      text: `Vê o perfil de ${target.name?.split(' ')[0]} no Te Quero`,
+      url: `${window.location.origin}/app/perfil/${target.id}`,
+    };
+    try {
+      if (navigator.share) await navigator.share(shareData);
+      else {
+        await navigator.clipboard.writeText(shareData.url);
+        showToast('Link copiado.', 'success');
+      }
+    } catch (err) {}
+    setShowActionsSheet(false);
+  };
+
+  const showToast = (msg, type) => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 2800);
+  };
+
+  const calcAge = (dob) => {
+    if (!dob) return null;
+    const b = new Date(dob);
+    const d = new Date();
+    let a = d.getFullYear() - b.getFullYear();
+    const m = d.getMonth() - b.getMonth();
+    if (m < 0 || (m === 0 && d.getDate() < b.getDate())) a--;
+    return a;
+  };
+
+  /* ---------- Loading ---------- */
+  if (loading) {
+    return (
+      <div className="absolute inset-0 flex flex-col bg-gray-100 overflow-hidden">
+        <div className="flex-1 flex items-center justify-center p-2">
+          <div className="w-full h-full max-w-[400px] rounded-3xl bg-gray-200 animate-pulse" />
+        </div>
+      </div>
+    );
+  }
+
+  /* ---------- Sem perfis ---------- */
+  if (baseLen === 0) {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center px-6 text-center bg-gray-100">
+        <div className="max-w-sm">
+          <div className="w-16 h-16 rounded-2xl bg-brand-100 flex items-center justify-center mx-auto mb-4">
+            <i className="fi fi-rr-search-alt text-brand-600 text-2xl leading-none" />
+          </div>
+          <h2 className="font-display text-xl font-extrabold text-gray-900">
+            Ainda não há perfis
+          </h2>
+          <p className="mt-2 text-sm text-gray-500 leading-relaxed">
+            Volta mais tarde. Estamos a adicionar novas pessoas todos os dias.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const current = profiles[currentIdx];
+  const isMe = current?.id === user.id;
+
+  /* ---------- UI ---------- */
+  return (
+    <>
+      <PartyBurst active={partyActive} />
+
+      <div className="absolute inset-0 flex flex-col bg-gray-100 overflow-hidden">
+
+        {/* Contador */}
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30
+          flex items-center gap-2 px-3 py-1.5 rounded-full
+          bg-black/50 backdrop-blur border border-white/15 pointer-events-none">
+          <i className="fi fi-rr-eye text-white/80 text-xs leading-none" />
+          <span className="text-[12px] font-bold text-white tabular-nums">
+            {currentIdx + 1}
+          </span>
+          <span className="text-[12px] text-white/60">/</span>
+          <span className="text-[12px] text-white/80 tabular-nums">{baseLen}</span>
+        </div>
+
+        {/* Saldo */}
+        <button
+          onClick={() => navigate('/app/contactos')}
+          className="absolute top-3 right-3 z-30 flex items-center gap-1.5
+            px-3 py-1.5 rounded-full bg-black/50 backdrop-blur
+            border border-white/15 hover:bg-black/70 transition"
+        >
+          <i className="fi fi-sr-ticket text-brand-300 text-sm leading-none" />
+          <span className="text-[12.5px] font-bold text-white tabular-nums">
+            {balance}
+          </span>
+        </button>
+
+        {/* Feed */}
+        <div
+          ref={feedRef}
+          onScroll={handleScroll}
+          className="flex-1 min-h-0 overflow-y-scroll snap-y snap-mandatory discover-feed"
+        >
+          <style>{`
+            .discover-feed::-webkit-scrollbar { display: none; }
+            .discover-feed { scrollbar-width: none; -ms-overflow-style: none; }
+
+            @keyframes partyFromLeft {
+              0%   { transform: translateX(0) translateY(0) scale(0.4); opacity: 0; }
+              25%  { opacity: 0.9; }
+              100% { transform: translateX(38vw) translateY(-20px) scale(0.9); opacity: 0; }
+            }
+            @keyframes partyFromRight {
+              0%   { transform: translateX(0) translateY(0) scale(0.4); opacity: 0; }
+              25%  { opacity: 0.9; }
+              100% { transform: translateX(-38vw) translateY(-20px) scale(0.9); opacity: 0; }
+            }
+            .party-particle {
+              position: fixed;
+              pointer-events: none;
+              z-index: 100;
+              will-change: transform, opacity;
+            }
+          `}</style>
+
+          {displayProfiles.map((p, i) => {
+            const a = calcAge(p.birth_date);
+            const mine = p.id === user.id;
+            const pLiked = likedIds.has(p.id);
+
+            return (
+              <div
+                key={`${p.id}-${i}`}
+                className="snap-start snap-always w-full h-full
+                  flex items-center justify-center py-2"
+              >
+                <div
+                  onClick={() => handleCardTap(p.id, mine)}
+                  className="relative w-full h-full
+                    md:max-w-[400px] md:h-[calc(100%-8px)]
+                    overflow-hidden bg-gray-900
+                    md:rounded-3xl md:shadow-[0_20px_50px_-15px_rgba(0,0,0,0.4)]
+                    cursor-pointer select-none active:scale-[0.995] transition-transform"
+                >
+                  {p.avatar_url ? (
+                    <img
+                      src={p.avatar_url}
+                      alt={p.name}
+                      className="w-full h-full object-cover pointer-events-none"
+                      loading="lazy"
+                      draggable="false"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br
+                      from-brand-400 via-brand-600 to-brand-800
+                      flex items-center justify-center">
+                      <i className="fi fi-sr-user text-white text-[120px] leading-none opacity-40" />
+                    </div>
+                  )}
+
+                  {/* Gradientes */}
+                  <div className="absolute inset-x-0 top-0 h-24
+                    bg-gradient-to-b from-black/60 to-transparent pointer-events-none" />
+                  <div className="absolute inset-x-0 bottom-0 h-2/3
+                    bg-gradient-to-t from-black/95 via-black/50 to-transparent pointer-events-none" />
+
+                  {/* Badge */}
+                  <div className="absolute top-14 left-4 z-10">
+                    {mine ? (
+                      <span className="inline-flex items-center gap-1.5
+                        text-[10px] font-bold uppercase tracking-wider
+                        bg-brand-600 text-white px-2.5 py-1 rounded-full">
+                        <i className="fi fi-sr-user text-[10px] leading-none" />
+                        És tu
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5
+                        text-[10px] font-bold uppercase tracking-wider
+                        bg-white/20 backdrop-blur text-white
+                        px-2.5 py-1 rounded-full border border-white/20">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                        Novo
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Acções laterais */}
+                  <div className="absolute right-3 bottom-32 z-10
+                    flex flex-col items-center gap-4">
+
+                    {!mine && (
+                      <div className="flex flex-col items-center gap-1">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleLike(p.id); }}
+                          className={`w-12 h-12 rounded-full backdrop-blur
+                            border flex items-center justify-center
+                            active:scale-90 transition-all duration-200
+                            ${pLiked
+                              ? 'bg-brand-600 border-brand-500 shadow-lg shadow-brand-600/40'
+                              : 'bg-white/15 border-white/20 hover:bg-white/25'}`}
+                          aria-label="Gostei"
+                        >
+                          <i className={`fi ${pLiked ? 'fi-sr-heart' : 'fi-rr-heart'}
+                            text-white text-xl leading-none
+                            ${pLiked ? 'scale-110' : ''} transition-transform`} />
+                        </button>
+                        <span className="text-[11px] font-bold text-white/90 tabular-nums
+                          drop-shadow-md">
+                          {pLiked ? 'Gostaste' : 'Gostar'}
+                        </span>
+                      </div>
+                    )}
+
+                    {!mine && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setShowActionsSheet(true); }}
+                        className="w-12 h-12 rounded-full bg-white/15 backdrop-blur
+                          border border-white/20 flex items-center justify-center
+                          hover:bg-white/25 active:scale-90 transition"
+                        aria-label="Mais opções"
+                      >
+                        <i className="fi fi-sr-menu-dots-vertical text-white text-base leading-none" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Info */}
+                  <div className="absolute bottom-0 inset-x-0 p-5 text-white
+                    pr-20 pointer-events-none">
+                    <h2 className="font-display text-[26px] font-extrabold leading-tight">
+                      {p.name}{a ? `, ${a}` : ''}
+                    </h2>
+
+                    {p.city && (
+                      <p className="mt-1.5 text-[13px] text-white/90 flex items-center gap-1.5">
+                        <i className="fi fi-sr-marker leading-none" />
+                        {p.city}
+                      </p>
+                    )}
+
+                    {p.bio && (
+                      <p className="mt-3 text-[13.5px] text-white/85 leading-relaxed line-clamp-3">
+                        {p.bio}
+                      </p>
+                    )}
+
+                    {Array.isArray(p.interests) && p.interests.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {p.interests.slice(0, 3).map((t) => (
+                          <span
+                            key={t}
+                            className="text-[11px] font-medium
+                              bg-white/15 backdrop-blur text-white
+                              px-2.5 py-1 rounded-full border border-white/15"
+                          >
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    <p className={`mt-3 text-[10.5px] text-white/50 transition-opacity duration-300
+                      ${showCTA ? 'opacity-0' : 'opacity-100'}`}>
+                      Toca para ver perfil • Duplo toque para gostar
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* CTA Desktop — sempre visível */}
+        <div className="hidden md:block shrink-0 px-4 py-3 bg-gray-100">
+          {isMe ? (
+            <button
+              onClick={() => navigate('/app/perfil')}
+              className="w-full max-w-[400px] mx-auto py-3.5 rounded-2xl
+                bg-gray-900 text-white font-bold text-[15px]
+                hover:bg-gray-800 active:scale-[0.99] transition
+                shadow-lg shadow-gray-900/25
+                flex items-center justify-center gap-2.5"
+            >
+              <i className="fi fi-rr-pencil text-base leading-none" />
+              Editar o meu perfil
+            </button>
+          ) : (
+            <button
+              onClick={handleContact}
+              disabled={contacting}
+              className="w-full max-w-[400px] mx-auto py-3.5 rounded-2xl
+                bg-[#25D366] text-white font-bold text-[15px]
+                hover:bg-[#1eb356] active:scale-[0.99] transition
+                shadow-lg shadow-green-500/25
+                disabled:opacity-60 disabled:cursor-not-allowed
+                flex items-center justify-center gap-2.5"
+            >
+              {contacting ? (
+                <>
+                  <span className="h-4 w-4 border-2 border-white/40 border-t-white
+                    rounded-full animate-spin" />
+                  A contactar...
+                </>
+              ) : (
+                <>
+                  <i className="fi fi-brands-whatsapp text-xl leading-none" />
+                  Falar no WhatsApp
+                </>
+              )}
+            </button>
+          )}
+        </div>
+
+        {/* CTA Mobile — aparece ao tocar na imagem */}
+        <div
+          className={`md:hidden absolute inset-x-0 bottom-0 z-40 px-4 pb-5
+            transition-all duration-500 ease-out
+            ${showCTA ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'}`}
+        >
+          {!isMe ? (
+            <>
+              <button
+                onClick={handleContact}
+                disabled={contacting}
+                className="w-full py-4 rounded-2xl
+                  bg-[#25D366] text-white font-bold text-[15px]
+                  active:scale-[0.98] transition
+                  shadow-[0_10px_40px_-8px_rgba(37,211,102,0.6)]
+                  disabled:opacity-60
+                  flex items-center justify-center gap-2.5"
+              >
+                {contacting ? (
+                  <>
+                    <span className="h-4 w-4 border-2 border-white/40 border-t-white
+                      rounded-full animate-spin" />
+                    A contactar...
+                  </>
+                ) : (
+                  <>
+                    <i className="fi fi-brands-whatsapp text-xl leading-none" />
+                    Falar no WhatsApp
+                  </>
+                )}
+              </button>
+
+              <p className="text-center text-[11px] text-gray-500 mt-2">
+                Vais usar <strong className="text-gray-700">1 contacto</strong> do teu saldo
+              </p>
+            </>
+          ) : (
+            <button
+              onClick={() => navigate('/app/perfil')}
+              className="w-full py-4 rounded-2xl
+                bg-gray-900 text-white font-bold text-[15px]
+                active:scale-[0.98] transition
+                shadow-[0_10px_40px_-8px_rgba(17,24,39,0.5)]
+                flex items-center justify-center gap-2.5"
+            >
+              <i className="fi fi-rr-pencil text-base leading-none" />
+              Editar o meu perfil
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* BOTTOM SHEET: ACÇÕES */}
+      {showActionsSheet && current && (
+        <div
+          onClick={() => setShowActionsSheet(false)}
+          className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm
+            flex items-end justify-center animate-[fadeIn_150ms_ease-out]"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-white rounded-t-3xl
+              p-4 pb-8 animate-[slideUp_250ms_cubic-bezier(0.22,1,0.36,1)]"
+          >
+            <div className="w-12 h-1.5 rounded-full bg-gray-300 mx-auto mb-5" />
+
+            <button
+              onClick={handleShare}
+              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl
+                hover:bg-gray-50 transition text-left"
+            >
+              <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+                <i className="fi fi-rr-share text-blue-600 text-lg leading-none" />
+              </div>
+              <div>
+                <p className="font-semibold text-[14.5px] text-gray-900">Partilhar perfil</p>
+                <p className="text-[12px] text-gray-500">Enviar para alguém</p>
+              </div>
+            </button>
+
+            <button
+              onClick={() => { setShowActionsSheet(false); setShowReportSheet(true); }}
+              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl
+                hover:bg-gray-50 transition text-left mt-1"
+            >
+              <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
+                <i className="fi fi-rr-flag text-amber-600 text-lg leading-none" />
+              </div>
+              <div>
+                <p className="font-semibold text-[14.5px] text-gray-900">Denunciar</p>
+                <p className="text-[12px] text-gray-500">Comportamento inadequado</p>
+              </div>
+            </button>
+
+            <button
+              onClick={handleBlock}
+              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl
+                hover:bg-red-50 transition text-left mt-1"
+            >
+              <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
+                <i className="fi fi-rr-ban text-red-600 text-lg leading-none" />
+              </div>
+              <div>
+                <p className="font-semibold text-[14.5px] text-red-700">Bloquear</p>
+                <p className="text-[12px] text-gray-500">Não volta a aparecer</p>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setShowActionsSheet(false)}
+              className="w-full py-3 mt-4 rounded-2xl bg-gray-100 text-gray-700
+                font-semibold text-[14px] hover:bg-gray-200 transition"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* BOTTOM SHEET: REPORTAR */}
+      {showReportSheet && current && (
+        <div
+          onClick={() => setShowReportSheet(false)}
+          className="fixed inset-0 z-[160] bg-black/60 backdrop-blur-sm
+            flex items-end justify-center animate-[fadeIn_150ms_ease-out]"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-white rounded-t-3xl
+              p-6 pb-8 animate-[slideUp_250ms_cubic-bezier(0.22,1,0.36,1)]"
+          >
+            <div className="w-12 h-1.5 rounded-full bg-gray-300 mx-auto mb-5" />
+
+            <h3 className="font-display text-xl font-extrabold text-gray-900">
+              Por que motivo?
+            </h3>
+            <p className="text-[13px] text-gray-500 mt-1">A tua denúncia é anónima.</p>
+
+            <div className="mt-5 space-y-1">
+              {REPORT_REASONS.map((r) => (
+                <button
+                  key={r.value}
+                  onClick={() => handleReport(r.value)}
+                  className="w-full flex items-center justify-between px-4 py-3.5 rounded-xl
+                    hover:bg-gray-50 active:bg-gray-100 transition text-left"
+                >
+                  <span className="text-[14.5px] text-gray-800">{r.label}</span>
+                  <i className="fi fi-rr-angle-small-right text-base leading-none text-gray-400" />
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={() => setShowReportSheet(false)}
+              className="w-full py-3 mt-4 rounded-2xl bg-gray-100 text-gray-700
+                font-semibold text-[14px] hover:bg-gray-200 transition"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div
+          className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-[200]
+            px-4 py-2.5 rounded-xl shadow-xl text-[13px] font-semibold
+            text-white max-w-[90vw]
+            ${toast.type === 'error' ? 'bg-red-600' : 'bg-gray-900'}`}
+        >
+          {toast.msg}
+        </div>
+      )}
+
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+        @keyframes slideUp {
+          from { transform: translateY(100%); }
+          to   { transform: translateY(0); }
+        }
+      `}</style>
+    </>
+  );
+}
