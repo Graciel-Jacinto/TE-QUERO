@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
+import { profilePath, profileUrl } from '../../lib/profilePath';
 
 const REPORT_REASONS = [
   { value: 'fake',      label: 'Perfil falso ou enganoso' },
@@ -64,18 +65,19 @@ export default function Discover() {
 
   const [profiles, setProfiles] = useState([]);
   const [likedIds, setLikedIds] = useState(new Set());
+  const [profileLikes, setProfileLikes] = useState({});
   const [loading, setLoading] = useState(true);
   const [balance, setBalance] = useState(0);
   const [currentIdx, setCurrentIdx] = useState(0);
-  const [contacting, setContacting] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [liking, setLiking] = useState(false);
   const [toast, setToast] = useState(null);
 
   const [showActionsSheet, setShowActionsSheet] = useState(false);
   const [showReportSheet, setShowReportSheet] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [partyActive, setPartyActive] = useState(false);
 
-  // Mobile: CTA escondido por defeito, aparece ao tocar
   const [showCTA, setShowCTA] = useState(false);
 
   const feedRef = useRef(null);
@@ -92,7 +94,7 @@ export default function Discover() {
       const [profRes, balRes, likesRes] = await Promise.all([
         supabase
           .from('profiles')
-          .select('id, name, birth_date, city, bio, avatar_url, gender, interests')
+          .select('id, name, slug, birth_date, city, bio, avatar_url, gender, interests')
           .eq('onboarding_completed', true)
           .order('created_at', { ascending: false })
           .limit(50),
@@ -110,6 +112,27 @@ export default function Discover() {
       setLoading(false);
     })();
   }, [user]);
+
+  /* ---------- Carregar total de likes por perfil ---------- */
+  useEffect(() => {
+    if (!user || profiles.length === 0) return;
+
+    (async () => {
+      const ids = profiles.map((p) => p.id);
+      const { data } = await supabase
+        .from('photo_likes')
+        .select('target_user_id')
+        .in('target_user_id', ids);
+
+      if (Array.isArray(data)) {
+        const counts = {};
+        data.forEach((row) => {
+          counts[row.target_user_id] = (counts[row.target_user_id] || 0) + 1;
+        });
+        setProfileLikes(counts);
+      }
+    })();
+  }, [user, profiles]);
 
   /* ---------- Esconder CTA quando muda de perfil ---------- */
   useEffect(() => {
@@ -181,7 +204,7 @@ export default function Discover() {
     }
   };
 
-  /* ---------- Toggle like ---------- */
+  /* ---------- Toggle like no perfil ---------- */
   const toggleLike = async (targetId) => {
     if (liking) return;
     if (targetId === user.id) return;
@@ -209,72 +232,76 @@ export default function Discover() {
   };
 
   /* ---------- Toque no card ---------- */
-  const handleCardTap = (targetId, mine) => {
+  const handleCardTap = (profile, mine) => {
     const now = Date.now();
 
     if (now - lastTapRef.current < 300) {
       // Duplo toque → like
-      if (!mine && !likedIds.has(targetId)) toggleLike(targetId);
+      if (!mine && !likedIds.has(profile.id)) toggleLike(profile.id);
       lastTapRef.current = 0;
       setShowCTA(false);
     } else {
       lastTapRef.current = now;
       setTimeout(() => {
         if (lastTapRef.current === now) {
-          // Toque simples → navega para o perfil
-          navigate(`/app/perfil/${targetId}`);
+          // Toque simples → abre UserProfile
+          navigate(profilePath(profile, user.id));
         }
       }, 280);
     }
   };
 
-  /* ---------- Contactar ---------- */
-  const handleContact = async () => {
+  /* ---------- Iniciar conversa ---------- */
+  const requestStartChat = () => {
     const target = profiles[currentIdx];
-    if (!target || contacting) return;
+    if (!target || starting) return;
     if (target.id === user.id) return showToast('Este perfil é teu.', 'error');
 
-    setContacting(true);
-    const { data, error } = await supabase.rpc('consume_contact', {
+    if (balance <= 0) {
+      showToast('Sem contactos. Compra mais para continuar.', 'error');
+      setTimeout(() => navigate('/app/planos'), 1200);
+      return;
+    }
+
+    setShowConfirm(true);
+  };
+
+  const executeStartChat = async () => {
+    const target = profiles[currentIdx];
+    if (!target) return;
+
+    setShowConfirm(false);
+    setStarting(true);
+
+    const { data, error } = await supabase.rpc('start_conversation', {
       target_user_id: target.id,
     });
-    setContacting(false);
+    setStarting(false);
 
     if (error) return showToast(error.message, 'error');
 
     if (!data?.success) {
       const msgs = {
         no_balance: 'Sem contactos. Compra mais para continuar.',
-        already_contacted: 'Já contactaste esta pessoa.',
-        cannot_contact_self: 'Não podes contactar-te.',
         blocked: 'Não é possível contactar.',
         target_banned: 'Perfil indisponível.',
-        target_no_whatsapp: 'Esta pessoa ainda não adicionou WhatsApp.',
+        cannot_contact_self: 'Não podes contactar-te.',
       };
       return showToast(msgs[data?.error] || 'Erro ao contactar.', 'error');
     }
 
-    if (!data.already_contacted) {
+    if (!data.already_existed) {
       setBalance((b) => Math.max(0, b - 1));
-      showToast('Contacto utilizado com sucesso.', 'success');
+      if (navigator.vibrate) navigator.vibrate([10, 30, 10]);
+      showToast('Conversa iniciada.', 'success');
     } else {
-      showToast('A abrir WhatsApp...', 'success');
+      showToast('A abrir conversa...', 'success');
     }
 
-    const firstName = target.name?.split(' ')[0] || '';
-    const myName = myProfile?.name?.split(' ')[0] || '';
-    const message = `Olá ${firstName}! Vi o teu perfil no Te Quero e achei interessante${
-      myName ? `. Sou o ${myName}` : ''
-    }. Podemos falar?`;
-
-    const cleanNumber = data.whatsapp_link.replace('https://wa.me/', '');
-    const waLink = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`;
-
-    setTimeout(() => {
-      window.open(waLink, '_blank', 'noopener,noreferrer');
-    }, 300);
-
     setShowCTA(false);
+    setTimeout(() => {
+      navigate(`/app/chat/${data.conversation_id}`);
+    }, 400);
   };
 
   const handleReport = async (reason) => {
@@ -303,17 +330,21 @@ export default function Discover() {
     }
   };
 
+  /* ---------- Partilhar ---------- */
   const handleShare = async () => {
     const target = profiles[currentIdx];
     if (!target) return;
+
     const shareData = {
       title: 'Te Quero',
       text: `Vê o perfil de ${target.name?.split(' ')[0]} no Te Quero`,
-      url: `${window.location.origin}/app/perfil/${target.id}`,
+      url: profileUrl(target, user.id),
     };
+
     try {
-      if (navigator.share) await navigator.share(shareData);
-      else {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else {
         await navigator.clipboard.writeText(shareData.url);
         showToast('Link copiado.', 'success');
       }
@@ -368,6 +399,7 @@ export default function Discover() {
 
   const current = profiles[currentIdx];
   const isMe = current?.id === user.id;
+  const noBalance = balance <= 0;
 
   /* ---------- UI ---------- */
   return (
@@ -433,6 +465,7 @@ export default function Discover() {
             const a = calcAge(p.birth_date);
             const mine = p.id === user.id;
             const pLiked = likedIds.has(p.id);
+            const totalLikes = profileLikes[p.id] || 0;
 
             return (
               <div
@@ -441,7 +474,7 @@ export default function Discover() {
                   flex items-center justify-center py-2"
               >
                 <div
-                  onClick={() => handleCardTap(p.id, mine)}
+                  onClick={() => handleCardTap(p, mine)}
                   className="relative w-full h-full
                     md:max-w-[400px] md:h-[calc(100%-8px)]
                     overflow-hidden bg-gray-900
@@ -470,8 +503,8 @@ export default function Discover() {
                   <div className="absolute inset-x-0 bottom-0 h-2/3
                     bg-gradient-to-t from-black/95 via-black/50 to-transparent pointer-events-none" />
 
-                  {/* Badge */}
-                  <div className="absolute top-14 left-4 z-10">
+                  {/* Badges */}
+                  <div className="absolute top-14 left-4 z-10 flex items-center gap-2">
                     {mine ? (
                       <span className="inline-flex items-center gap-1.5
                         text-[10px] font-bold uppercase tracking-wider
@@ -486,6 +519,17 @@ export default function Discover() {
                         px-2.5 py-1 rounded-full border border-white/20">
                         <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
                         Novo
+                      </span>
+                    )}
+
+                    {/* Badge de likes totais */}
+                    {totalLikes > 0 && (
+                      <span className="inline-flex items-center gap-1
+                        text-[10px] font-bold uppercase tracking-wider
+                        bg-white/20 backdrop-blur text-white
+                        px-2.5 py-1 rounded-full border border-white/20">
+                        <i className="fi fi-sr-heart text-[10px] leading-none text-rose-300" />
+                        {totalLikes}
                       </span>
                     )}
                   </div>
@@ -592,32 +636,43 @@ export default function Discover() {
             </button>
           ) : (
             <button
-              onClick={handleContact}
-              disabled={contacting}
-              className="w-full max-w-[400px] mx-auto py-3.5 rounded-2xl
-                bg-[#25D366] text-white font-bold text-[15px]
-                hover:bg-[#1eb356] active:scale-[0.99] transition
-                shadow-lg shadow-green-500/25
+              onClick={requestStartChat}
+              disabled={starting}
+              className={`w-full max-w-[400px] mx-auto py-3.5 rounded-2xl
+                text-white font-bold text-[15px]
+                hover:scale-[1.01] active:scale-[0.99] transition
                 disabled:opacity-60 disabled:cursor-not-allowed
-                flex items-center justify-center gap-2.5"
+                flex items-center justify-center gap-2.5 shadow-lg
+                ${noBalance
+                  ? 'bg-gray-900 hover:bg-gray-800 shadow-gray-900/25'
+                  : 'bg-brand-600 hover:bg-brand-700 shadow-brand-600/25'}`}
             >
-              {contacting ? (
+              {starting ? (
                 <>
                   <span className="h-4 w-4 border-2 border-white/40 border-t-white
                     rounded-full animate-spin" />
-                  A contactar...
+                  A abrir...
+                </>
+              ) : noBalance ? (
+                <>
+                  <i className="fi fi-rr-credit-card text-xl leading-none" />
+                  Sem contactos
                 </>
               ) : (
                 <>
-                  <i className="fi fi-brands-whatsapp text-xl leading-none" />
-                  Falar no WhatsApp
+                  <i className="fi fi-sr-comment text-xl leading-none" />
+                  Iniciar conversa
+                  <span className="ml-1 px-2 py-0.5 bg-white/25 rounded-full
+                    text-[11px] font-bold">
+                    −1
+                  </span>
                 </>
               )}
             </button>
           )}
         </div>
 
-        {/* CTA Mobile — aparece ao tocar na imagem */}
+        {/* CTA Mobile */}
         <div
           className={`md:hidden absolute inset-x-0 bottom-0 z-40 px-4 pb-5
             transition-all duration-500 ease-out
@@ -626,31 +681,40 @@ export default function Discover() {
           {!isMe ? (
             <>
               <button
-                onClick={handleContact}
-                disabled={contacting}
-                className="w-full py-4 rounded-2xl
-                  bg-[#25D366] text-white font-bold text-[15px]
+                onClick={requestStartChat}
+                disabled={starting}
+                className={`w-full py-4 rounded-2xl
+                  text-white font-bold text-[15px]
                   active:scale-[0.98] transition
-                  shadow-[0_10px_40px_-8px_rgba(37,211,102,0.6)]
                   disabled:opacity-60
-                  flex items-center justify-center gap-2.5"
+                  flex items-center justify-center gap-2.5
+                  ${noBalance
+                    ? 'bg-gray-900 shadow-[0_10px_40px_-8px_rgba(17,24,39,0.5)]'
+                    : 'bg-brand-600 shadow-[0_10px_40px_-8px_rgba(225,29,87,0.5)]'}`}
               >
-                {contacting ? (
+                {starting ? (
                   <>
                     <span className="h-4 w-4 border-2 border-white/40 border-t-white
                       rounded-full animate-spin" />
-                    A contactar...
+                    A abrir...
+                  </>
+                ) : noBalance ? (
+                  <>
+                    <i className="fi fi-rr-credit-card text-xl leading-none" />
+                    Sem contactos
                   </>
                 ) : (
                   <>
-                    <i className="fi fi-brands-whatsapp text-xl leading-none" />
-                    Falar no WhatsApp
+                    <i className="fi fi-sr-comment text-xl leading-none" />
+                    Iniciar conversa
                   </>
                 )}
               </button>
 
               <p className="text-center text-[11px] text-gray-500 mt-2">
-                Vais usar <strong className="text-gray-700">1 contacto</strong> do teu saldo
+                {noBalance
+                  ? 'Compra um pacote para continuares'
+                  : <>Vais usar <strong className="text-gray-700">1 contacto</strong> do teu saldo</>}
               </p>
             </>
           ) : (
@@ -669,25 +733,91 @@ export default function Discover() {
         </div>
       </div>
 
+      {/* MODAL CONFIRMAÇÃO */}
+      {showConfirm && current && !isMe && (
+        <div className="fixed inset-0 z-[170] flex items-end sm:items-center justify-center">
+          <div onClick={() => setShowConfirm(false)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+
+          <div className="relative w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl
+            p-6 pb-8 sm:p-8
+            animate-[slideUpConfirm_250ms_cubic-bezier(0.22,1,0.36,1)]">
+            <style>{`
+              @keyframes slideUpConfirm { from { transform: translateY(100%); } to { transform: translateY(0); } }
+              @media (min-width: 640px) {
+                @keyframes slideUpConfirm { from { transform: translateY(20px) scale(0.98); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+              }
+            `}</style>
+
+            <div className="sm:hidden w-12 h-1.5 rounded-full bg-gray-300 mx-auto mb-5" />
+
+            <div className="flex justify-center mb-4">
+              <div className="w-16 h-16 rounded-2xl bg-brand-50 flex items-center justify-center">
+                <i className="fi fi-sr-comment text-brand-600 text-2xl leading-none" />
+              </div>
+            </div>
+
+            <h3 className="font-display text-[20px] font-extrabold text-gray-900 text-center">
+              Iniciar conversa?
+            </h3>
+            <p className="mt-2 text-[14px] text-gray-600 text-center leading-relaxed">
+              Vais usar <strong className="text-gray-900">1 contacto</strong> para falar com{' '}
+              <strong className="text-gray-900">{current.name?.split(' ')[0]}</strong>.
+            </p>
+
+            <div className="mt-5 flex items-center justify-between px-4 py-3 rounded-2xl
+              bg-gray-50 border border-gray-100">
+              <span className="text-[13.5px] font-semibold text-gray-700">Saldo actual</span>
+              <div className="flex items-center gap-2">
+                <span className="font-display text-[18px] font-extrabold text-gray-900 tabular-nums">
+                  {balance}
+                </span>
+                <i className="fi fi-rr-arrow-small-right text-gray-400 text-base leading-none" />
+                <span className="font-display text-[18px] font-extrabold text-brand-600 tabular-nums">
+                  {balance - 1}
+                </span>
+              </div>
+            </div>
+
+            {balance === 1 && (
+              <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-xl
+                bg-amber-50 border border-amber-200">
+                <i className="fi fi-rr-exclamation text-amber-600 text-sm leading-none" />
+                <span className="text-[12px] font-medium text-amber-800">
+                  Este é o teu último contacto
+                </span>
+              </div>
+            )}
+
+            <div className="mt-6 flex gap-2">
+              <button onClick={() => setShowConfirm(false)}
+                className="flex-1 py-3.5 rounded-xl bg-gray-100 text-gray-700
+                  font-semibold text-[14.5px] hover:bg-gray-200 active:bg-gray-300 transition">
+                Cancelar
+              </button>
+              <button onClick={executeStartChat}
+                className="flex-1 py-3.5 rounded-xl bg-brand-600 text-white
+                  font-bold text-[14.5px]
+                  hover:bg-brand-700 active:scale-[0.98] transition
+                  shadow-lg shadow-brand-600/25
+                  flex items-center justify-center gap-2">
+                <i className="fi fi-rr-check text-base leading-none" />
+                Começar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* BOTTOM SHEET: ACÇÕES */}
       {showActionsSheet && current && (
-        <div
-          onClick={() => setShowActionsSheet(false)}
-          className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm
-            flex items-end justify-center animate-[fadeIn_150ms_ease-out]"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md bg-white rounded-t-3xl
-              p-4 pb-8 animate-[slideUp_250ms_cubic-bezier(0.22,1,0.36,1)]"
-          >
+        <div onClick={() => setShowActionsSheet(false)}
+          className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm flex items-end justify-center animate-[fadeIn_150ms_ease-out]">
+          <div onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-white rounded-t-3xl p-4 pb-8 animate-[slideUp_250ms_cubic-bezier(0.22,1,0.36,1)]">
             <div className="w-12 h-1.5 rounded-full bg-gray-300 mx-auto mb-5" />
 
-            <button
-              onClick={handleShare}
-              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl
-                hover:bg-gray-50 transition text-left"
-            >
+            <button onClick={handleShare}
+              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl hover:bg-gray-50 transition text-left">
               <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
                 <i className="fi fi-rr-share text-blue-600 text-lg leading-none" />
               </div>
@@ -697,11 +827,8 @@ export default function Discover() {
               </div>
             </button>
 
-            <button
-              onClick={() => { setShowActionsSheet(false); setShowReportSheet(true); }}
-              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl
-                hover:bg-gray-50 transition text-left mt-1"
-            >
+            <button onClick={() => { setShowActionsSheet(false); setShowReportSheet(true); }}
+              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl hover:bg-gray-50 transition text-left mt-1">
               <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
                 <i className="fi fi-rr-flag text-amber-600 text-lg leading-none" />
               </div>
@@ -711,11 +838,8 @@ export default function Discover() {
               </div>
             </button>
 
-            <button
-              onClick={handleBlock}
-              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl
-                hover:bg-red-50 transition text-left mt-1"
-            >
+            <button onClick={handleBlock}
+              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl hover:bg-red-50 transition text-left mt-1">
               <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
                 <i className="fi fi-rr-ban text-red-600 text-lg leading-none" />
               </div>
@@ -725,11 +849,9 @@ export default function Discover() {
               </div>
             </button>
 
-            <button
-              onClick={() => setShowActionsSheet(false)}
+            <button onClick={() => setShowActionsSheet(false)}
               className="w-full py-3 mt-4 rounded-2xl bg-gray-100 text-gray-700
-                font-semibold text-[14px] hover:bg-gray-200 transition"
-            >
+                font-semibold text-[14px] hover:bg-gray-200 transition">
               Cancelar
             </button>
           </div>
@@ -738,16 +860,10 @@ export default function Discover() {
 
       {/* BOTTOM SHEET: REPORTAR */}
       {showReportSheet && current && (
-        <div
-          onClick={() => setShowReportSheet(false)}
-          className="fixed inset-0 z-[160] bg-black/60 backdrop-blur-sm
-            flex items-end justify-center animate-[fadeIn_150ms_ease-out]"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md bg-white rounded-t-3xl
-              p-6 pb-8 animate-[slideUp_250ms_cubic-bezier(0.22,1,0.36,1)]"
-          >
+        <div onClick={() => setShowReportSheet(false)}
+          className="fixed inset-0 z-[160] bg-black/60 backdrop-blur-sm flex items-end justify-center animate-[fadeIn_150ms_ease-out]">
+          <div onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-white rounded-t-3xl p-6 pb-8 animate-[slideUp_250ms_cubic-bezier(0.22,1,0.36,1)]">
             <div className="w-12 h-1.5 rounded-full bg-gray-300 mx-auto mb-5" />
 
             <h3 className="font-display text-xl font-extrabold text-gray-900">
@@ -757,23 +873,18 @@ export default function Discover() {
 
             <div className="mt-5 space-y-1">
               {REPORT_REASONS.map((r) => (
-                <button
-                  key={r.value}
-                  onClick={() => handleReport(r.value)}
+                <button key={r.value} onClick={() => handleReport(r.value)}
                   className="w-full flex items-center justify-between px-4 py-3.5 rounded-xl
-                    hover:bg-gray-50 active:bg-gray-100 transition text-left"
-                >
+                    hover:bg-gray-50 active:bg-gray-100 transition text-left">
                   <span className="text-[14.5px] text-gray-800">{r.label}</span>
                   <i className="fi fi-rr-angle-small-right text-base leading-none text-gray-400" />
                 </button>
               ))}
             </div>
 
-            <button
-              onClick={() => setShowReportSheet(false)}
+            <button onClick={() => setShowReportSheet(false)}
               className="w-full py-3 mt-4 rounded-2xl bg-gray-100 text-gray-700
-                font-semibold text-[14px] hover:bg-gray-200 transition"
-            >
+                font-semibold text-[14px] hover:bg-gray-200 transition">
               Cancelar
             </button>
           </div>
@@ -782,25 +893,17 @@ export default function Discover() {
 
       {/* Toast */}
       {toast && (
-        <div
-          className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-[200]
-            px-4 py-2.5 rounded-xl shadow-xl text-[13px] font-semibold
-            text-white max-w-[90vw]
-            ${toast.type === 'error' ? 'bg-red-600' : 'bg-gray-900'}`}
-        >
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-[200]
+          px-4 py-2.5 rounded-xl shadow-xl text-[13px] font-semibold
+          text-white max-w-[90vw]
+          ${toast.type === 'error' ? 'bg-red-600' : 'bg-gray-900'}`}>
           {toast.msg}
         </div>
       )}
 
       <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to   { opacity: 1; }
-        }
-        @keyframes slideUp {
-          from { transform: translateY(100%); }
-          to   { transform: translateY(0); }
-        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
       `}</style>
     </>
   );

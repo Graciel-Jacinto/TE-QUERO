@@ -14,21 +14,25 @@ import ProfileSetup from './pages/onboarding/ProfileSetup';
 
 import AppLayout from './pages/app/AppLayout';
 import Discover from './pages/app/Discover';
+import Search from './pages/app/Search';
 import Contacts from './pages/app/Contacts';
+import Notifications from './pages/app/Notifications';
+import Plans from './pages/app/Plans';
 import Profile from './pages/app/Profile';
 import UserProfile from './pages/app/UserProfile';
+import Chat from './pages/app/Chat';
 
 export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Públicas */}
+          {/* ============ PÚBLICAS ============ */}
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
           <Route path="/registar" element={<Register />} />
 
-          {/* Onboarding */}
+          {/* ============ ONBOARDING ============ */}
           <Route element={<OnboardingGuard />}>
             <Route path="/onboarding" element={<OnboardingLayout />}>
               <Route index element={<Navigate to="bem-vindo" replace />} />
@@ -38,17 +42,28 @@ export default function App() {
             </Route>
           </Route>
 
-          {/* App */}
+          {/* ============ APP (protegida) ============ */}
           <Route element={<ProtectedRoute />}>
             <Route path="/app" element={<AppLayout />}>
+              {/* /app → vai directo para Descobrir */}
               <Route index element={<Navigate to="descobrir" replace />} />
+
               <Route path="descobrir" element={<Discover />} />
+              <Route path="pesquisa" element={<Search />} />
               <Route path="contactos" element={<Contacts />} />
+              <Route path="notificacoes" element={<Notifications />} />
+              <Route path="planos" element={<Plans />} />
+
+              {/* O MEU perfil (edição) */}
               <Route path="perfil" element={<Profile />} />
-              <Route path="perfil/:id" element={<UserProfile />} />
+
+              {/* PERFIL PÚBLICO (detalhes de outro utilizador) */}
+              <Route path="perfil/:slug" element={<UserProfile />} />
+              <Route path="chat/:id" element={<Chat />} />   {/* ← NOVO */}
             </Route>
           </Route>
 
+          {/* ============ FALLBACK ============ */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

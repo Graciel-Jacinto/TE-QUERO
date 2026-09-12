@@ -5,7 +5,6 @@ import { useAuth } from '../../contexts/AuthContext';
 
 /* ---------- Tabs completas (desktop sidebar) ---------- */
 const allTabs = [
-  { to: '/app/inicio',       label: 'Início',       icon: 'fi-rr-home',        fill: 'fi-sr-home' },
   { to: '/app/descobrir',    label: 'Descobrir',    icon: 'fi-rr-heart',       fill: 'fi-sr-heart' },
   { to: '/app/pesquisa',     label: 'Pesquisar',    icon: 'fi-rr-search',      fill: 'fi-sr-search' },
   { to: '/app/contactos',    label: 'Contactos',    icon: 'fi-rr-comment',     fill: 'fi-sr-comment' },
@@ -16,16 +15,16 @@ const allTabs = [
 
 /* ---------- Bottom navbar mobile ---------- */
 const mobileNav = [
-  { to: '/app/inicio',    label: 'Início',    icon: 'fi-rr-home',     fill: 'fi-sr-home' },
   { to: '/app/descobrir', label: 'Descobrir', icon: 'fi-rr-heart',    fill: 'fi-sr-heart' },
+  { to: '/app/pesquisa',  label: 'Pesquisar', icon: 'fi-rr-search',   fill: 'fi-sr-search' },
   { to: '/app/contactos', label: 'Contactos', icon: 'fi-rr-comment',  fill: 'fi-sr-comment' },
   { to: '/app/perfil',    label: 'Perfil',    icon: 'fi-rr-user',     fill: 'fi-sr-user' },
 ];
 
 /* ---------- Itens extra no drawer mobile ---------- */
 const mobileDrawerItems = [
-  { to: '/app/pesquisa', label: 'Pesquisar', icon: 'fi-rr-search',      desc: 'Encontra pessoas por nome ou cidade' },
-  { to: '/app/planos',   label: 'Planos',    icon: 'fi-rr-credit-card', desc: 'Compra mais contactos' },
+  { to: '/app/notificacoes', label: 'Notificações', icon: 'fi-rr-bell',        desc: 'Vê quem se interessou por ti', badge: true },
+  { to: '/app/planos',       label: 'Planos',       icon: 'fi-rr-credit-card', desc: 'Compra mais contactos' },
 ];
 
 export default function AppLayout() {
@@ -220,7 +219,7 @@ export default function AppLayout() {
       <header className="md:hidden shrink-0 bg-white border-b border-gray-100 z-[60]">
         <div className="h-[56px] px-3 flex items-center justify-between gap-2">
 
-          <button onClick={() => navigate('/app/inicio')} className="flex items-center gap-2 shrink-0">
+          <button onClick={() => navigate('/app/descobrir')} className="flex items-center gap-2 shrink-0">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-brand-700
               flex items-center justify-center shadow-sm shadow-brand-600/30">
               <i className="fi fi-sr-heart text-white text-base leading-none" />
@@ -660,39 +659,22 @@ export default function AppLayout() {
             >
               {({ isActive }) => (
                 <>
-                  <div className="w-11 h-11 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
+                  <div className="relative w-11 h-11 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
                     <i className={`fi ${isActive ? item.icon.replace('rr', 'sr') : item.icon}
                       text-[19px] leading-none`} />
+                    {item.badge && unread > 0 && (
+                      <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1
+                        bg-brand-600 text-white text-[10px] font-bold rounded-full
+                        flex items-center justify-center border-2 border-white">
+                        {unread > 9 ? '9+' : unread}
+                      </span>
+                    )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-[14.5px] leading-tight">{item.label}</p>
                     <p className="text-[11.5px] text-gray-400 truncate mt-0.5">{item.desc}</p>
                   </div>
                   <i className="fi fi-rr-angle-small-right text-gray-300 text-base leading-none" />
-                </>
-              )}
-            </NavLink>
-          ))}
-
-          <div className="h-px bg-gray-100 my-3 mx-3" />
-
-          <p className="px-3 py-2 text-[10.5px] font-bold uppercase tracking-wider text-gray-400">
-            Navegação
-          </p>
-
-          {allTabs.filter((t) => !['/app/inicio', '/app/descobrir', '/app/contactos', '/app/perfil'].includes(t.to)).map((t) => (
-            <NavLink
-              key={t.to}
-              to={t.to}
-              className={({ isActive }) =>
-                `flex items-center gap-3.5 px-3 py-3 rounded-2xl transition
-                ${isActive ? 'bg-brand-50 text-brand-700' : 'text-gray-700 hover:bg-gray-50'}`
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  <i className={`fi ${isActive ? t.fill : t.icon} text-[19px] leading-none w-6 text-center`} />
-                  <span className="font-semibold text-[14.5px]">{t.label}</span>
                 </>
               )}
             </NavLink>
