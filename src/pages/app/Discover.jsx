@@ -59,11 +59,24 @@ function PartyBurst({ active }) {
   );
 }
 
+/* ============================================================
+   Shuffle — Fisher-Yates
+============================================================ */
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 export default function Discover() {
   const navigate = useNavigate();
-  const { user, profile: myProfile } = useAuth();
+  const { user } = useAuth();
 
-  const [profiles, setProfiles] = useState([]);
+  const [baseProfiles, setBaseProfiles] = useState([]);      // fonte original
+  const [displayProfiles, setDisplayProfiles] = useState([]); // cresce infinitamente
   const [likedIds, setLikedIds] = useState(new Set());
   const [profileLikes, setProfileLikes] = useState({});
   const [loading, setLoading] = useState(true);
@@ -81,10 +94,9 @@ export default function Discover() {
   const [showCTA, setShowCTA] = useState(false);
 
   const feedRef = useRef(null);
-  const jumpingRef = useRef(false);
-  const hasCenteredRef = useRef(false);
   const lastTapRef = useRef(0);
   const ctaTimerRef = useRef(null);
+  const appendingRef = useRef(false);
 
   /* ---------- Carregar dados ---------- */
   useEffect(() => {
@@ -96,7 +108,6 @@ export default function Discover() {
           .from('profiles')
           .select('id, name, slug, birth_date, city, bio, avatar_url, gender, interests')
           .eq('onboarding_completed', true)
-          .order('created_at', { ascending: false })
           .limit(50),
         supabase
           .from('contact_balances')
@@ -106,19 +117,45 @@ export default function Discover() {
         supabase.rpc('my_liked_ids'),
       ]);
 
-      setProfiles(profRes.data || []);
+      const source = profRes.data || [];
+      setBaseProfiles(source);
+
+      // Batelada inicial: 3x embaralhado para ter margem
+      const initial = [...shuffle(source), ...shuffle(source), ...shuffle(source)];
+      setDisplayProfiles(initial);
+
       setBalance(balRes.data?.balance ?? 0);
       if (Array.isArray(likesRes.data)) setLikedIds(new Set(likesRes.data));
       setLoading(false);
     })();
   }, [user]);
 
-  /* ---------- Carregar total de likes por perfil ---------- */
+  /* ---------- ♾️ Scroll infinito: acrescenta quando perto do fim ---------- */
   useEffect(() => {
-    if (!user || profiles.length === 0) return;
+    if (baseProfiles.length === 0) return;
+    if (displayProfiles.length === 0) return;
+
+    // Está a menos de 5 perfis do fim?
+    const nearEnd = currentIdx >= displayProfiles.length - 5;
+    if (!nearEnd) return;
+
+    // Evitar duplicação de chamadas
+    if (appendingRef.current) return;
+    appendingRef.current = true;
+
+    // Acrescenta 2x embaralhado (fonte sempre nova)
+    setTimeout(() => {
+      setDisplayProfiles((prev) => [...prev, ...shuffle(baseProfiles), ...shuffle(baseProfiles)]);
+      appendingRef.current = false;
+    }, 100);
+  }, [currentIdx, displayProfiles.length, baseProfiles]);
+
+  /* ---------- Carregar likes ---------- */
+  useEffect(() => {
+    if (!user || baseProfiles.length === 0) return;
 
     (async () => {
-      const ids = profiles.map((p) => p.id);
+      const ids = baseProfiles.map((p) => p.id);
       const { data } = await supabase
         .from('photo_likes')
         .select('target_user_id')
@@ -132,9 +169,9 @@ export default function Discover() {
         setProfileLikes(counts);
       }
     })();
-  }, [user, profiles]);
+  }, [user, baseProfiles]);
 
-  /* ---------- Esconder CTA quando muda de perfil ---------- */
+  /* ---------- Esconder CTA ao mudar de perfil ---------- */
   useEffect(() => {
     setShowCTA(false);
     if (ctaTimerRef.current) clearTimeout(ctaTimerRef.current);
@@ -146,62 +183,22 @@ export default function Discover() {
     ctaTimerRef.current = setTimeout(() => setShowCTA(false), 4000);
   };
 
-  /* ---------- Loop infinito ---------- */
-  const MULT = useMemo(() => {
-    const n = profiles.length;
-    if (n === 0) return 1;
-    if (n === 1) return 9;
-    if (n === 2) return 7;
-    if (n <= 4) return 5;
-    if (n <= 8) return 3;
-    return 2;
-  }, [profiles.length]);
-
-  const baseLen = profiles.length;
-
-  const displayProfiles = useMemo(() => {
-    if (baseLen === 0) return [];
-    const arr = [];
-    for (let i = 0; i < MULT; i++) arr.push(...profiles);
-    return arr;
-  }, [profiles, baseLen, MULT]);
-
-  useEffect(() => {
-    if (loading || baseLen === 0) return;
-    if (hasCenteredRef.current) return;
-    const el = feedRef.current;
-    if (!el) return;
-    requestAnimationFrame(() => {
-      const middleBlock = Math.floor(MULT / 2);
-      el.scrollTop = middleBlock * baseLen * el.clientHeight;
-      hasCenteredRef.current = true;
-    });
-  }, [loading, baseLen, MULT]);
-
+  /* ---------- Scroll — calcula índice actual ---------- */
   const handleScroll = (e) => {
-    if (baseLen === 0) return;
     const el = e.currentTarget;
     const h = el.clientHeight;
     if (h === 0) return;
-
     const idx = Math.round(el.scrollTop / h);
-    const realIdx = ((idx % baseLen) + baseLen) % baseLen;
-    setCurrentIdx(realIdx);
+    if (idx !== currentIdx) setCurrentIdx(idx);
+  };
 
-    if (jumpingRef.current) return;
-
-    if (idx < baseLen) {
-      jumpingRef.current = true;
-      el.scrollTop = (idx + baseLen) * h;
-      requestAnimationFrame(() => { jumpingRef.current = false; });
-      return;
-    }
-    if (idx >= baseLen * (MULT - 1)) {
-      jumpingRef.current = true;
-      el.scrollTop = (idx - baseLen) * h;
-      requestAnimationFrame(() => { jumpingRef.current = false; });
-      return;
-    }
+  /* ---------- Scroll por atalho (setas) ---------- */
+  const scrollByCards = (dir) => {
+    const el = feedRef.current;
+    if (!el) return;
+    const h = el.clientHeight;
+    const next = currentIdx + dir;
+    el.scrollTo({ top: next * h, behavior: 'smooth' });
   };
 
   /* ---------- Toggle like no perfil ---------- */
@@ -236,15 +233,13 @@ export default function Discover() {
     const now = Date.now();
 
     if (now - lastTapRef.current < 300) {
-      // Duplo toque → like
-      if (!mine && !likedIds.has(profile.id)) toggleLike(profile.id);
+      if (!mine) toggleLike(profile.id);
       lastTapRef.current = 0;
       setShowCTA(false);
     } else {
       lastTapRef.current = now;
       setTimeout(() => {
         if (lastTapRef.current === now) {
-          // Toque simples → abre UserProfile
           navigate(profilePath(profile, user.id));
         }
       }, 280);
@@ -253,7 +248,7 @@ export default function Discover() {
 
   /* ---------- Iniciar conversa ---------- */
   const requestStartChat = () => {
-    const target = profiles[currentIdx];
+    const target = displayProfiles[currentIdx];
     if (!target || starting) return;
     if (target.id === user.id) return showToast('Este perfil é teu.', 'error');
 
@@ -267,7 +262,7 @@ export default function Discover() {
   };
 
   const executeStartChat = async () => {
-    const target = profiles[currentIdx];
+    const target = displayProfiles[currentIdx];
     if (!target) return;
 
     setShowConfirm(false);
@@ -305,7 +300,7 @@ export default function Discover() {
   };
 
   const handleReport = async (reason) => {
-    const target = profiles[currentIdx];
+    const target = displayProfiles[currentIdx];
     if (!target) return;
     const { data } = await supabase.rpc('report_user', {
       target_user_id: target.id,
@@ -320,19 +315,19 @@ export default function Discover() {
   };
 
   const handleBlock = async () => {
-    const target = profiles[currentIdx];
+    const target = displayProfiles[currentIdx];
     if (!target) return;
     const { data } = await supabase.rpc('block_user', { target_user_id: target.id });
     setShowActionsSheet(false);
     if (data?.success) {
       showToast('Utilizador bloqueado.', 'success');
-      setProfiles((prev) => prev.filter((p) => p.id !== target.id));
+      setBaseProfiles((prev) => prev.filter((p) => p.id !== target.id));
+      setDisplayProfiles((prev) => prev.filter((p) => p.id !== target.id));
     }
   };
 
-  /* ---------- Partilhar ---------- */
   const handleShare = async () => {
-    const target = profiles[currentIdx];
+    const target = displayProfiles[currentIdx];
     if (!target) return;
 
     const shareData = {
@@ -342,9 +337,8 @@ export default function Discover() {
     };
 
     try {
-      if (navigator.share) {
-        await navigator.share(shareData);
-      } else {
+      if (navigator.share) await navigator.share(shareData);
+      else {
         await navigator.clipboard.writeText(shareData.url);
         showToast('Link copiado.', 'success');
       }
@@ -367,7 +361,6 @@ export default function Discover() {
     return a;
   };
 
-  /* ---------- Loading ---------- */
   if (loading) {
     return (
       <div className="absolute inset-0 flex flex-col bg-gray-100 overflow-hidden">
@@ -378,8 +371,7 @@ export default function Discover() {
     );
   }
 
-  /* ---------- Sem perfis ---------- */
-  if (baseLen === 0) {
+  if (baseProfiles.length === 0) {
     return (
       <div className="absolute inset-0 flex items-center justify-center px-6 text-center bg-gray-100">
         <div className="max-w-sm">
@@ -397,30 +389,17 @@ export default function Discover() {
     );
   }
 
-  const current = profiles[currentIdx];
+  const current = displayProfiles[currentIdx];
   const isMe = current?.id === user.id;
   const noBalance = balance <= 0;
 
-  /* ---------- UI ---------- */
   return (
     <>
       <PartyBurst active={partyActive} />
 
       <div className="absolute inset-0 flex flex-col bg-gray-100 overflow-hidden">
 
-        {/* Contador */}
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30
-          flex items-center gap-2 px-3 py-1.5 rounded-full
-          bg-black/50 backdrop-blur border border-white/15 pointer-events-none">
-          <i className="fi fi-rr-eye text-white/80 text-xs leading-none" />
-          <span className="text-[12px] font-bold text-white tabular-nums">
-            {currentIdx + 1}
-          </span>
-          <span className="text-[12px] text-white/60">/</span>
-          <span className="text-[12px] text-white/80 tabular-nums">{baseLen}</span>
-        </div>
-
-        {/* Saldo */}
+        {/* Saldo (topo direito) */}
         <button
           onClick={() => navigate('/app/contactos')}
           className="absolute top-3 right-3 z-30 flex items-center gap-1.5
@@ -433,6 +412,47 @@ export default function Discover() {
           </span>
         </button>
 
+        {/* ============ SETAS DESKTOP ============ */}
+        <div className="hidden md:flex flex-col items-center gap-3
+          absolute right-6 top-1/2 -translate-y-1/2 z-30">
+          <button
+            onClick={() => scrollByCards(-1)}
+            className="w-12 h-12 rounded-full bg-white shadow-xl border border-gray-100
+              flex items-center justify-center
+              text-gray-700 hover:bg-gray-50 hover:scale-105
+              active:scale-95 transition-all"
+            aria-label="Perfil anterior"
+          >
+            <i className="fi fi-rr-angle-small-up text-2xl leading-none" />
+          </button>
+
+          {/* Indicador decorativo (sem número) */}
+          <div className="flex flex-col items-center gap-1.5 py-2">
+            <span className="w-1.5 h-5 bg-brand-600 rounded-full" />
+            <span className="w-1.5 h-1.5 bg-gray-300 rounded-full" />
+            <span className="w-1.5 h-1.5 bg-gray-300 rounded-full" />
+            <span className="w-1.5 h-1.5 bg-gray-300 rounded-full" />
+            <span className="w-1.5 h-1.5 bg-gray-300 rounded-full" />
+          </div>
+
+          <button
+            onClick={() => scrollByCards(1)}
+            className="w-12 h-12 rounded-full bg-white shadow-xl border border-gray-100
+              flex items-center justify-center
+              text-gray-700 hover:bg-gray-50 hover:scale-105
+              active:scale-95 transition-all"
+            aria-label="Próximo perfil"
+          >
+            <i className="fi fi-rr-angle-small-down text-2xl leading-none" />
+          </button>
+
+          {/* Legenda PT-PT */}
+          <p className="mt-1 text-[10px] font-bold text-gray-500
+            tracking-widest uppercase">
+            Desliza
+          </p>
+        </div>
+
         {/* Feed */}
         <div
           ref={feedRef}
@@ -440,8 +460,12 @@ export default function Discover() {
           className="flex-1 min-h-0 overflow-y-scroll snap-y snap-mandatory discover-feed"
         >
           <style>{`
+            .discover-feed {
+              scroll-behavior: smooth;
+              scrollbar-width: none;
+              -ms-overflow-style: none;
+            }
             .discover-feed::-webkit-scrollbar { display: none; }
-            .discover-feed { scrollbar-width: none; -ms-overflow-style: none; }
 
             @keyframes partyFromLeft {
               0%   { transform: translateX(0) translateY(0) scale(0.4); opacity: 0; }
@@ -459,6 +483,14 @@ export default function Discover() {
               z-index: 100;
               will-change: transform, opacity;
             }
+
+            @keyframes newBadgePulse {
+              0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.25); }
+              50%      { box-shadow: 0 0 0 6px rgba(255,255,255,0); }
+            }
+            .new-badge {
+              animation: newBadgePulse 2s ease-in-out infinite;
+            }
           `}</style>
 
           {displayProfiles.map((p, i) => {
@@ -466,6 +498,7 @@ export default function Discover() {
             const mine = p.id === user.id;
             const pLiked = likedIds.has(p.id);
             const totalLikes = profileLikes[p.id] || 0;
+            const isActive = i === currentIdx;
 
             return (
               <div
@@ -475,11 +508,13 @@ export default function Discover() {
               >
                 <div
                   onClick={() => handleCardTap(p, mine)}
-                  className="relative w-full h-full
+                  className={`relative w-full h-full
                     md:max-w-[400px] md:h-[calc(100%-8px)]
                     overflow-hidden bg-gray-900
                     md:rounded-3xl md:shadow-[0_20px_50px_-15px_rgba(0,0,0,0.4)]
-                    cursor-pointer select-none active:scale-[0.995] transition-transform"
+                    cursor-pointer select-none active:scale-[0.995]
+                    transition-all duration-500
+                    ${isActive ? 'opacity-100 scale-100' : 'opacity-90 scale-[0.98]'}`}
                 >
                   {p.avatar_url ? (
                     <img
@@ -497,7 +532,6 @@ export default function Discover() {
                     </div>
                   )}
 
-                  {/* Gradientes */}
                   <div className="absolute inset-x-0 top-0 h-24
                     bg-gradient-to-b from-black/60 to-transparent pointer-events-none" />
                   <div className="absolute inset-x-0 bottom-0 h-2/3
@@ -513,7 +547,7 @@ export default function Discover() {
                         És tu
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1.5
+                      <span className="new-badge inline-flex items-center gap-1.5
                         text-[10px] font-bold uppercase tracking-wider
                         bg-white/20 backdrop-blur text-white
                         px-2.5 py-1 rounded-full border border-white/20">
@@ -522,7 +556,6 @@ export default function Discover() {
                       </span>
                     )}
 
-                    {/* Badge de likes totais */}
                     {totalLikes > 0 && (
                       <span className="inline-flex items-center gap-1
                         text-[10px] font-bold uppercase tracking-wider
@@ -548,7 +581,7 @@ export default function Discover() {
                             ${pLiked
                               ? 'bg-brand-600 border-brand-500 shadow-lg shadow-brand-600/40'
                               : 'bg-white/15 border-white/20 hover:bg-white/25'}`}
-                          aria-label="Gostei"
+                          aria-label={pLiked ? 'Remover gosto' : 'Gostar'}
                         >
                           <i className={`fi ${pLiked ? 'fi-sr-heart' : 'fi-rr-heart'}
                             text-white text-xl leading-none
@@ -620,7 +653,7 @@ export default function Discover() {
           })}
         </div>
 
-        {/* CTA Desktop — sempre visível */}
+        {/* CTA Desktop */}
         <div className="hidden md:block shrink-0 px-4 py-3 bg-gray-100">
           {isMe ? (
             <button
@@ -663,9 +696,7 @@ export default function Discover() {
                   <i className="fi fi-sr-comment text-xl leading-none" />
                   Iniciar conversa
                   <span className="ml-1 px-2 py-0.5 bg-white/25 rounded-full
-                    text-[11px] font-bold">
-                    −1
-                  </span>
+                    text-[11px] font-bold">−1</span>
                 </>
               )}
             </button>
