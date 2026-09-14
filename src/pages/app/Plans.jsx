@@ -3,8 +3,18 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 
+/* ---------- Helper: detetar plano ilimitado ---------- */
+function isUnlimitedPlan(pkg) {
+  if (!pkg) return false;
+  if (pkg.unlimited === true) return true;
+  if (typeof pkg.name === 'string' && /ilimitad/i.test(pkg.name)) return true;
+  // Fallback: quantidade muito alta (>100) é tratada como ilimitada
+  if (typeof pkg.quantity === 'number' && pkg.quantity >= 100) return true;
+  return false;
+}
+
 export default function Plans() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
 
   const [packages, setPackages] = useState([]);
@@ -51,7 +61,7 @@ export default function Plans() {
   const confirmBuy = () => {
     if (!selectedPkg) return;
     setToast({
-      msg: `Pagamento em breve! Pacote "${selectedPkg.name}" por ${selectedPkg.price_mzn} MZN.`,
+      msg: `Pagamento em breve! Plano "${selectedPkg.name}" por ${selectedPkg.price_mzn} MZN/mês.`,
       type: 'info',
     });
     setSelectedPkg(null);
@@ -74,6 +84,7 @@ export default function Plans() {
   }
 
   const popularIdx = packages.length >= 2 ? Math.floor(packages.length / 2) : 0;
+  const isVerified = profile?.is_verified === true;
 
   return (
     <>
@@ -87,11 +98,12 @@ export default function Plans() {
             </h1>
             <span className="px-2 py-0.5 rounded-full bg-brand-50 text-brand-700
               text-[10.5px] font-bold uppercase tracking-wider">
-              Novo
+              Mensal
             </span>
           </div>
           <p className="text-[14px] text-gray-500">
-            Compra mais contactos para falar com mais pessoas no WhatsApp.
+            Todos os planos incluem <strong className="text-gray-700">selo verificado</strong> e
+            contactos para falar no WhatsApp.
           </p>
         </div>
 
@@ -123,6 +135,16 @@ export default function Plans() {
                 Cada contacto permite-te falar com <strong className="text-white">1 pessoa nova</strong> no
                 WhatsApp. Nunca é descontado duas vezes pelo mesmo perfil.
               </p>
+
+              {isVerified && (
+                <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full
+                  bg-white/15 backdrop-blur border border-white/25">
+                  <i className="fi fi-sr-badge-check text-blue-300 text-sm leading-none" />
+                  <span className="text-[12px] font-bold text-white">
+                    Plano ativo · Selo verificado
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="shrink-0 flex items-center justify-center sm:justify-end">
@@ -135,21 +157,45 @@ export default function Plans() {
           </div>
         </div>
 
+        {/* Aviso: como funciona o selo */}
+        <div className="mt-6 flex items-start gap-3 px-4 py-3.5 rounded-2xl
+          bg-blue-50 border border-blue-100">
+          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0 mt-0.5">
+            <i className="fi fi-sr-info text-blue-600 text-sm leading-none" />
+          </div>
+          <div className="text-[13px] text-blue-900 leading-relaxed">
+            <strong className="font-bold">Como funciona o selo verificado:</strong>{' '}
+            todos os planos incluem o selo azul. O selo mantém-se ativo enquanto o teu
+            plano estiver pago. Se não renovares, perdes o selo e os contactos extra.
+          </div>
+        </div>
+
         {/* Pacotes */}
         <div className="mt-10">
           <h2 className="font-display text-[18px] font-extrabold text-gray-900 mb-5">
-            Escolhe um pacote
+            Escolhe um plano
           </h2>
 
           {packages.length === 0 ? (
             <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center">
-              <p className="text-sm text-gray-500">Sem pacotes disponíveis.</p>
+              <p className="text-sm text-gray-500">Sem planos disponíveis.</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {packages.map((pkg, i) => {
                 const isPopular = i === popularIdx && packages.length >= 2;
                 const perUnit = (pkg.price_mzn / pkg.quantity).toFixed(0);
+                const unlimited = isUnlimitedPlan(pkg);
+
+                /* Benefícios dinâmicos por tipo de plano */
+                const benefits = [
+                  'Selo verificado ativo',
+                  'Sem cobranças duplicadas',
+                  'Fala directo no WhatsApp',
+                ];
+                if (unlimited) {
+                  benefits.unshift('Contactos nunca expiram');
+                }
 
                 return (
                   <div
@@ -174,32 +220,39 @@ export default function Plans() {
                       <div className="flex items-center gap-3">
                         <div className={`w-12 h-12 rounded-2xl flex items-center justify-center
                           ${isPopular ? 'bg-brand-600' : 'bg-brand-50'}`}>
-                          <i className={`fi fi-sr-ticket text-xl leading-none
+                          <i className={`fi ${unlimited ? 'fi-sr-infinity' : 'fi-sr-ticket'}
+                            text-xl leading-none
                             ${isPopular ? 'text-white' : 'text-brand-600'}`} />
                         </div>
                         <div>
                           <p className="font-display text-[19px] font-extrabold text-gray-900 leading-tight">
-                            {pkg.quantity} contactos
+                            {unlimited ? 'Ilimitado' : `${pkg.quantity} contactos`}
                           </p>
                           <p className="text-[12px] text-gray-500 mt-0.5">
-                            {perUnit} MZN cada
+                            {unlimited ? 'Sem limite de contactos' : `${perUnit} MZN cada`}
                           </p>
                         </div>
                       </div>
 
-                      <div className="mt-5 flex items-baseline gap-2">
+                      {/* Selo incluído */}
+                      <div className="mt-4 inline-flex items-center gap-1.5
+                        px-2.5 py-1 rounded-full bg-blue-50 border border-blue-100">
+                        <i className="fi fi-sr-badge-check text-blue-600 text-[11px] leading-none" />
+                        <span className="text-[10.5px] font-bold text-blue-700 uppercase tracking-wider">
+                          Selo verificado incluído
+                        </span>
+                      </div>
+
+                      <div className="mt-4 flex items-baseline gap-2">
                         <span className="font-display text-[32px] font-extrabold text-gray-900 leading-none">
                           {pkg.price_mzn}
                         </span>
                         <span className="text-[13px] font-bold text-gray-400">MZN</span>
+                        <span className="text-[12px] text-gray-400 ml-1">/mês</span>
                       </div>
 
                       <ul className="mt-5 space-y-2">
-                        {[
-                          'Contactos nunca expiram',
-                          'Sem cobranças duplicadas',
-                          'Fala directo no WhatsApp',
-                        ].map((b, k) => (
+                        {benefits.map((b, k) => (
                           <li key={k} className="flex items-center gap-2 text-[13px] text-gray-600">
                             <span className="w-4 h-4 rounded-full bg-green-50
                               flex items-center justify-center shrink-0">
@@ -220,8 +273,12 @@ export default function Plans() {
                             : 'bg-gray-900 text-white hover:bg-gray-800'}`}
                       >
                         <i className="fi fi-rr-shopping-cart text-base leading-none" />
-                        Comprar agora
+                        Subscrever agora
                       </button>
+
+                      <p className="mt-2 text-[10.5px] text-gray-400 text-center">
+                        Renova automaticamente · Cancelas quando quiseres
+                      </p>
                     </div>
                   </div>
                 );
@@ -237,16 +294,16 @@ export default function Plans() {
               <i className="fi fi-sr-shield-check text-brand-600 text-base leading-none" />
             </div>
             <h2 className="font-display text-[17px] font-extrabold text-gray-900">
-              Porquê comprar contactos?
+              Porquê subscrever um plano?
             </h2>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
             {[
-              { icon: 'fi-sr-infinity',  title: 'Sem expiração',    desc: 'Os contactos ficam na tua conta para sempre.', color: 'text-blue-600 bg-blue-50' },
-              { icon: 'fi-sr-shield-check', title: 'Sem duplicados', desc: 'Nunca pagas duas vezes pela mesma pessoa.',   color: 'text-green-600 bg-green-50' },
-              { icon: 'fi-sr-bolt',      title: 'Acesso imediato',  desc: 'Pagas e usas logo. Sem esperas.',            color: 'text-amber-600 bg-amber-50' },
-              { icon: 'fi-sr-lock',      title: 'Pagamento seguro', desc: 'M-Pesa, e-Mola ou cartão. Escolhes.',        color: 'text-purple-600 bg-purple-50' },
+              { icon: 'fi-sr-badge-check', title: 'Selo verificado',   desc: 'Ganha o selo azul e destaca-te no feed.',     color: 'text-blue-600 bg-blue-50' },
+              { icon: 'fi-sr-infinity',    title: 'Contactos extra',   desc: 'Fala com mais pessoas no WhatsApp.',          color: 'text-green-600 bg-green-50' },
+              { icon: 'fi-sr-bolt',        title: 'Acesso imediato',   desc: 'Pagas e usas logo. Sem esperas.',             color: 'text-amber-600 bg-amber-50' },
+              { icon: 'fi-sr-lock',        title: 'Pagamento seguro',  desc: 'M-Pesa, e-Mola ou cartão. Escolhes.',         color: 'text-purple-600 bg-purple-50' },
             ].map((b, i) => {
               const [text, bg] = b.color.split(' ');
               return (
@@ -272,10 +329,10 @@ export default function Plans() {
           <div className="mt-10">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-display text-[17px] font-extrabold text-gray-900">
-                Compras recentes
+                Subscrições recentes
               </h2>
               <span className="text-[12px] text-gray-500">
-                Últimas {history.length} compras
+                Últimas {history.length}
               </span>
             </div>
 
@@ -293,7 +350,7 @@ export default function Plans() {
 
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-[14px] text-gray-900">
-                      +{h.quantity} contactos
+                      +{h.quantity} contactos + Selo
                     </p>
                     <p className="text-[12px] text-gray-500 mt-0.5">
                       {formatDate(h.created_at)}
@@ -323,10 +380,30 @@ export default function Plans() {
 
           <div className="bg-white rounded-2xl border border-gray-100 divide-y divide-gray-100">
             {[
-              { q: 'Os contactos expiram?', a: 'Não. Os contactos que compras ficam na tua conta para sempre, até os usares.' },
-              { q: 'Vou pagar duas vezes pela mesma pessoa?', a: 'Não. Se já contactaste alguém, abrir o WhatsApp novamente é gratuito.' },
-              { q: 'Que métodos de pagamento aceitam?', a: 'Estamos a preparar M-Pesa, e-Mola e cartão de crédito. Será anunciado em breve.' },
-              { q: 'Posso pedir reembolso?', a: 'Sim, dentro de 7 dias se ainda não usaste nenhum contacto do pacote.' },
+              {
+                q: 'O selo verificado está incluído em todos os planos?',
+                a: 'Sim. Todos os planos incluem o selo verificado. O selo fica ativo enquanto a subscrição estiver paga.',
+              },
+              {
+                q: 'Os contactos expiram?',
+                a: 'Nos planos com limite de contactos, tens um número definido de contactos por mês. Só no plano ilimitado podes contactar sem qualquer limite.',
+              },
+              {
+                q: 'O que acontece se eu não renovar?',
+                a: 'Perdes o selo verificado e os contactos extra. Os contactos que já usaste mantêm-se registados, mas não podes contactar novas pessoas.',
+              },
+              {
+                q: 'Vou pagar duas vezes pela mesma pessoa?',
+                a: 'Não. Se já contactaste alguém, abrir o WhatsApp novamente é gratuito — nunca é descontado duas vezes.',
+              },
+              {
+                q: 'Que métodos de pagamento aceitam?',
+                a: 'Aceitamos M-Pesa (Vodacom) e e-Mola (Movitel). Cartão de crédito será adicionado em breve.',
+              },
+              {
+                q: 'Posso cancelar quando quiser?',
+                a: 'Sim. Podes cancelar a renovação automática a qualquer momento. O plano mantém-se ativo até ao fim do período já pago.',
+              },
             ].map((item, i) => (
               <FaqItem key={i} question={item.q} answer={item.a} defaultOpen={i === 0} />
             ))}
@@ -370,40 +447,65 @@ export default function Plans() {
             </div>
 
             <h3 className="font-display text-[20px] font-extrabold text-gray-900 text-center">
-              Confirmar compra
+              Confirmar subscrição
             </h3>
             <p className="mt-2 text-[13.5px] text-gray-500 text-center leading-relaxed">
-              Estás prestes a comprar o pacote de <strong className="text-gray-900">{selectedPkg.name}</strong>.
+              Estás prestes a subscrever o <strong className="text-gray-900">{selectedPkg.name}</strong>{' '}
+              por <strong className="text-gray-900">{selectedPkg.price_mzn} MZN/mês</strong>.
             </p>
 
             <div className="mt-5 rounded-2xl bg-gray-50 border border-gray-100 p-4 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-[13px] text-gray-600">Pacote</span>
+                <span className="text-[13px] text-gray-600">Plano</span>
                 <span className="text-[13.5px] font-semibold text-gray-900">
-                  {selectedPkg.quantity} contactos
+                  {isUnlimitedPlan(selectedPkg)
+                    ? 'Ilimitado'
+                    : `${selectedPkg.quantity} contactos`}
                 </span>
               </div>
+
+              {!isUnlimitedPlan(selectedPkg) && (
+                <div className="flex items-center justify-between">
+                  <span className="text-[13px] text-gray-600">Preço unitário</span>
+                  <span className="text-[13.5px] font-semibold text-gray-900 tabular-nums">
+                    {(selectedPkg.price_mzn / selectedPkg.quantity).toFixed(0)} MZN
+                  </span>
+                </div>
+              )}
+
               <div className="flex items-center justify-between">
-                <span className="text-[13px] text-gray-600">Preço unitário</span>
-                <span className="text-[13.5px] font-semibold text-gray-900 tabular-nums">
-                  {(selectedPkg.price_mzn / selectedPkg.quantity).toFixed(0)} MZN
+                <span className="text-[13px] text-gray-600">Selo verificado</span>
+                <span className="text-[13px] font-bold text-blue-600 flex items-center gap-1.5">
+                  <i className="fi fi-sr-badge-check text-[12px] leading-none" />
+                  Incluído
                 </span>
               </div>
               <div className="flex items-center justify-between pt-3 border-t border-gray-200">
-                <span className="text-[13px] font-bold text-gray-900">Total</span>
+                <span className="text-[13px] font-bold text-gray-900">Total mensal</span>
                 <span className="font-display text-[20px] font-extrabold text-brand-600 tabular-nums">
                   {selectedPkg.price_mzn} MZN
                 </span>
               </div>
             </div>
 
-            <div className="mt-4 flex items-center justify-between px-4 py-3 rounded-xl
-              bg-green-50 border border-green-100">
-              <span className="text-[12.5px] font-medium text-green-800">
-                Novo saldo depois da compra
-              </span>
-              <span className="font-display text-[16px] font-extrabold text-green-700 tabular-nums">
-                {balance + selectedPkg.quantity}
+            {!isUnlimitedPlan(selectedPkg) && (
+              <div className="mt-4 flex items-center justify-between px-4 py-3 rounded-xl
+                bg-green-50 border border-green-100">
+                <span className="text-[12.5px] font-medium text-green-800">
+                  Novo saldo depois da compra
+                </span>
+                <span className="font-display text-[16px] font-extrabold text-green-700 tabular-nums">
+                  {balance + selectedPkg.quantity}
+                </span>
+              </div>
+            )}
+
+            <div className="mt-3 flex items-start gap-2 px-3 py-2.5 rounded-xl
+              bg-blue-50 border border-blue-100">
+              <i className="fi fi-sr-info text-blue-600 text-sm leading-none mt-0.5 shrink-0" />
+              <span className="text-[11.5px] text-blue-800 leading-relaxed">
+                O selo mantém-se ativo enquanto renovares. Se cancelares, o plano
+                continua até ao fim do mês já pago.
               </span>
             </div>
 

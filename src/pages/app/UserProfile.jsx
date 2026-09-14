@@ -3,6 +3,15 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 
+/* ---------- Ícone WhatsApp (SVG inline) ---------- */
+function WhatsAppIcon({ className = '' }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+    </svg>
+  );
+}
+
 export default function UserProfile() {
   const { slug } = useParams();
   const navigate = useNavigate();
@@ -21,6 +30,9 @@ export default function UserProfile() {
   const [alreadyHasConv, setAlreadyHasConv] = useState(false);
   const [conversationId, setConversationId] = useState(null);
   const [showConfirm, setShowConfirm] = useState(false);
+
+  /* ---------- Novo: pop-up "precisas de plano" ---------- */
+  const [showPlanPrompt, setShowPlanPrompt] = useState(false);
 
   const isMe = profile?.id === user?.id;
 
@@ -66,10 +78,10 @@ export default function UserProfile() {
   }, [slug, user]);
 
   useEffect(() => {
-    const open = lightboxIdx !== null || videoLightboxIdx !== null || showConfirm;
+    const open = lightboxIdx !== null || videoLightboxIdx !== null || showConfirm || showPlanPrompt;
     document.body.style.overflow = open ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
-  }, [lightboxIdx, videoLightboxIdx, showConfirm]);
+  }, [lightboxIdx, videoLightboxIdx, showConfirm, showPlanPrompt]);
 
   /* ---------- Teclado ---------- */
   const photos = Array.isArray(profile?.photos) ? profile.photos : [];
@@ -103,12 +115,19 @@ export default function UserProfile() {
   /* ---------- Iniciar conversa ---------- */
   const requestStartChat = () => {
     if (isMe || starting) return;
-    if (alreadyHasConv && conversationId) return navigate(`/app/chat/${conversationId}`);
+
+    /* Já tem conversa → abre direto */
+    if (alreadyHasConv && conversationId) {
+      return navigate(`/app/chat/${conversationId}`);
+    }
+
+    /* Sem contactos → mostra pop-up de plano */
     if (balance <= 0) {
-      showToast('Sem contactos. Compra mais para continuar.', 'error');
-      setTimeout(() => navigate('/app/planos'), 1200);
+      setShowPlanPrompt(true);
       return;
     }
+
+    /* Com contactos → confirma e usa 1 */
     setShowConfirm(true);
   };
 
@@ -204,7 +223,6 @@ export default function UserProfile() {
   const hasPhotos = photos.length > 0;
   const hasVideos = videos.length > 0;
   const activeTab = (tab === 'photos' && hasPhotos) || !hasVideos ? 'photos' : 'videos';
-  const noBalance = balance <= 0 && !alreadyHasConv;
 
   return (
     <>
@@ -302,16 +320,12 @@ export default function UserProfile() {
                   <button
                     onClick={requestStartChat}
                     disabled={starting}
-                    className={`flex-1 sm:flex-none min-w-[220px] px-5 py-3 rounded-xl
-                      font-bold text-[14.5px]
+                    className="flex-1 sm:flex-none min-w-[220px] px-5 py-3 rounded-xl
+                      font-bold text-[14.5px] text-white
+                      bg-[#25D366] hover:bg-[#1eb356]
                       hover:scale-[1.02] active:scale-[0.98] transition-all
                       disabled:opacity-60 disabled:cursor-not-allowed
-                      flex items-center justify-center gap-2.5 shadow-lg
-                      ${alreadyHasConv
-                        ? 'bg-brand-600 text-white hover:bg-brand-700 shadow-brand-600/25'
-                        : noBalance
-                          ? 'bg-gray-900 text-white hover:bg-gray-800 shadow-gray-900/30'
-                          : 'bg-brand-600 text-white hover:bg-brand-700 shadow-brand-600/30'}`}
+                      flex items-center justify-center gap-2.5 shadow-lg shadow-green-500/30"
                   >
                     {starting ? (
                       <>
@@ -320,18 +334,13 @@ export default function UserProfile() {
                       </>
                     ) : alreadyHasConv ? (
                       <>
-                        <i className="fi fi-sr-comment text-lg leading-none" />
+                        <WhatsAppIcon className="w-5 h-5" />
                         Abrir conversa
-                      </>
-                    ) : noBalance ? (
-                      <>
-                        <i className="fi fi-rr-credit-card text-lg leading-none" />
-                        Sem contactos
                       </>
                     ) : (
                       <>
-                        <i className="fi fi-sr-comment text-lg leading-none" />
-                        Iniciar conversa
+                        <WhatsAppIcon className="w-5 h-5" />
+                        Enviar mensagem
                         <span className="ml-1 px-2 py-0.5 bg-white/25 rounded-full text-[11px] font-bold">−1</span>
                       </>
                     )}
@@ -361,42 +370,6 @@ export default function UserProfile() {
                 </button>
               )}
             </div>
-
-            {/* AVISOS */}
-            {!isMe && !alreadyHasConv && (
-              <>
-                {noBalance && (
-                  <div className="mt-4 flex items-start gap-3 p-4 rounded-2xl bg-amber-50 border border-amber-200">
-                    <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
-                      <i className="fi fi-sr-ticket text-amber-600 text-base leading-none" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[13.5px] font-bold text-amber-900">Ficaste sem contactos</p>
-                      <p className="text-[12.5px] text-amber-800 mt-0.5 leading-snug">
-                        Compra um pacote para continuares a conhecer pessoas.
-                      </p>
-                    </div>
-                    <button onClick={() => navigate('/app/planos')}
-                      className="shrink-0 px-3 py-2 rounded-lg bg-amber-600 text-white text-[12.5px] font-bold hover:bg-amber-700 transition">
-                      Ver planos
-                    </button>
-                  </div>
-                )}
-                {!noBalance && balance === 1 && (
-                  <div className="mt-4 flex items-start gap-3 p-4 rounded-2xl bg-rose-50 border border-rose-200">
-                    <div className="w-9 h-9 rounded-xl bg-rose-100 flex items-center justify-center shrink-0">
-                      <i className="fi fi-rr-exclamation text-rose-600 text-base leading-none" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[13.5px] font-bold text-rose-900">Último contacto disponível</p>
-                      <p className="text-[12.5px] text-rose-800 mt-0.5 leading-snug">
-                        Depois deste, precisas de comprar um pacote.
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
 
             {alreadyHasConv && !isMe && (
               <div className="mt-4 flex items-center gap-2 px-1">
@@ -477,7 +450,70 @@ export default function UserProfile() {
         </div>
       </div>
 
-      {/* MODAL CONFIRMAÇÃO */}
+      {/* ===================================================== */}
+      {/* MODAL: PRECISAS DE PLANO (sem contactos)             */}
+      {/* ===================================================== */}
+      {showPlanPrompt && !isMe && (
+        <div className="fixed inset-0 z-[330] flex items-end sm:items-center justify-center">
+          <div onClick={() => setShowPlanPrompt(false)}
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+
+          <div className="relative w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl
+            p-6 pb-8 sm:p-8 animate-[slideUpConfirm_280ms_cubic-bezier(0.22,1,0.36,1)]">
+            <div className="sm:hidden w-12 h-1.5 rounded-full bg-gray-300 mx-auto mb-5" />
+
+            <div className="flex justify-center mb-4">
+              <div className="w-20 h-20 rounded-3xl bg-green-50 flex items-center justify-center relative">
+                <i className="fi fi-sr-lock text-green-600 text-3xl leading-none" />
+                <span className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-white
+                  border-2 border-green-100 flex items-center justify-center">
+                  <WhatsAppIcon className="w-4 h-4 text-[#25D366]" />
+                </span>
+              </div>
+            </div>
+
+            <h3 className="font-display text-[22px] font-extrabold text-gray-900 text-center leading-tight">
+              Sem contactos
+            </h3>
+
+            <p className="mt-3 text-[14.5px] text-gray-600 text-center leading-relaxed">
+              Para enviares mensagem a <strong className="text-gray-900">{profile.name?.split(' ')[0]}</strong>{' '}
+              precisas de ter contactos. Ativa um plano e começa a falar agora.
+            </p>
+
+            <div className="mt-5 flex items-start gap-3 p-4 rounded-2xl bg-gray-50 border border-gray-100">
+              <div className="w-9 h-9 rounded-xl bg-brand-50 flex items-center justify-center shrink-0">
+                <i className="fi fi-sr-badge-check text-brand-600 text-base leading-none" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-bold text-gray-900">Todos os planos incluem</p>
+                <p className="text-[12.5px] text-gray-600 mt-0.5 leading-snug">
+                  Selo verificado, contactos para falar no WhatsApp e acesso imediato.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-col gap-2">
+              <button
+                onClick={() => { setShowPlanPrompt(false); navigate('/app/planos'); }}
+                className="w-full py-4 rounded-2xl bg-green-600 text-white font-bold text-[15px]
+                  hover:bg-green-700 active:scale-[0.98] transition shadow-lg shadow-green-500/30
+                  flex items-center justify-center gap-2">
+                <i className="fi fi-sr-credit-card text-base leading-none" />
+                Ver planos
+              </button>
+              <button
+                onClick={() => setShowPlanPrompt(false)}
+                className="w-full py-3.5 rounded-2xl bg-gray-100 text-gray-700 font-semibold text-[14px]
+                  hover:bg-gray-200 transition">
+                Agora não
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CONFIRMAÇÃO (com contactos) */}
       {showConfirm && !isMe && (
         <div className="fixed inset-0 z-[320] flex items-end sm:items-center justify-center">
           <div onClick={() => setShowConfirm(false)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
@@ -491,21 +527,21 @@ export default function UserProfile() {
             `}</style>
             <div className="sm:hidden w-12 h-1.5 rounded-full bg-gray-300 mx-auto mb-5" />
             <div className="flex justify-center mb-4">
-              <div className="w-16 h-16 rounded-2xl bg-brand-50 flex items-center justify-center">
-                <i className="fi fi-sr-comment text-brand-600 text-2xl leading-none" />
+              <div className="w-16 h-16 rounded-2xl bg-[#25D366]/10 flex items-center justify-center">
+                <WhatsAppIcon className="w-8 h-8 text-[#25D366]" />
               </div>
             </div>
-            <h3 className="font-display text-[20px] font-extrabold text-gray-900 text-center">Iniciar conversa?</h3>
+            <h3 className="font-display text-[20px] font-extrabold text-gray-900 text-center">Enviar mensagem?</h3>
             <p className="mt-2 text-[14px] text-gray-600 text-center leading-relaxed">
               Vais usar <strong className="text-gray-900">1 contacto</strong> para falar com{' '}
-              <strong className="text-gray-900">{profile.name?.split(' ')[0]}</strong>.
+              <strong className="text-gray-900">{profile.name?.split(' ')[0]}</strong> no WhatsApp.
             </p>
             <div className="mt-5 flex items-center justify-between px-4 py-3 rounded-2xl bg-gray-50 border border-gray-100">
               <span className="text-[13.5px] font-semibold text-gray-700">Saldo actual</span>
               <div className="flex items-center gap-2">
                 <span className="font-display text-[18px] font-extrabold text-gray-900 tabular-nums">{balance}</span>
                 <i className="fi fi-rr-arrow-small-right text-gray-400 text-base leading-none" />
-                <span className="font-display text-[18px] font-extrabold text-brand-600 tabular-nums">{balance - 1}</span>
+                <span className="font-display text-[18px] font-extrabold text-[#25D366] tabular-nums">{balance - 1}</span>
               </div>
             </div>
             {balance === 1 && (
@@ -520,11 +556,11 @@ export default function UserProfile() {
                 Cancelar
               </button>
               <button onClick={executeStartChat}
-                className="flex-1 py-3.5 rounded-xl bg-brand-600 text-white font-bold text-[14.5px]
-                  hover:bg-brand-700 active:scale-[0.98] transition shadow-lg shadow-brand-600/25
+                className="flex-1 py-3.5 rounded-xl bg-[#25D366] text-white font-bold text-[14.5px]
+                  hover:bg-[#1eb356] active:scale-[0.98] transition shadow-lg shadow-green-500/25
                   flex items-center justify-center gap-2">
-                <i className="fi fi-rr-check text-base leading-none" />
-                Começar
+                <WhatsAppIcon className="w-4 h-4" />
+                Enviar
               </button>
             </div>
           </div>

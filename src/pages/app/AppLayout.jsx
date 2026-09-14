@@ -7,7 +7,6 @@ import { useAuth } from '../../contexts/AuthContext';
 const allTabs = [
   { to: '/app/descobrir',    label: 'Descobrir',    icon: 'fi-rr-heart',       fill: 'fi-sr-heart' },
   { to: '/app/pesquisa',     label: 'Pesquisar',    icon: 'fi-rr-search',      fill: 'fi-sr-search' },
-  { to: '/app/contactos',    label: 'Contactos',    icon: 'fi-rr-comment',     fill: 'fi-sr-comment' },
   { to: '/app/notificacoes', label: 'Notificações', icon: 'fi-rr-bell',        fill: 'fi-sr-bell', badge: true },
   { to: '/app/planos',       label: 'Planos',       icon: 'fi-rr-credit-card', fill: 'fi-sr-credit-card' },
   { to: '/app/perfil',       label: 'Perfil',       icon: 'fi-rr-user',        fill: 'fi-sr-user' },
@@ -17,7 +16,6 @@ const allTabs = [
 const mobileNav = [
   { to: '/app/descobrir', label: 'Descobrir', icon: 'fi-rr-heart',    fill: 'fi-sr-heart' },
   { to: '/app/pesquisa',  label: 'Pesquisar', icon: 'fi-rr-search',   fill: 'fi-sr-search' },
-  { to: '/app/contactos', label: 'Contactos', icon: 'fi-rr-comment',  fill: 'fi-sr-comment' },
   { to: '/app/perfil',    label: 'Perfil',    icon: 'fi-rr-user',     fill: 'fi-sr-user' },
 ];
 
@@ -44,6 +42,7 @@ export default function AppLayout() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notifLoading, setNotifLoading] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   const notifRef = useRef(null);
 
@@ -503,6 +502,7 @@ export default function AppLayout() {
             ))}
           </nav>
 
+          {/* ---------- Colapsar menu ---------- */}
           <div className={`border-t border-gray-100 ${collapsed ? 'p-3' : 'p-4'}`}>
             <button
               onClick={() => setCollapsed(!collapsed)}
@@ -517,12 +517,16 @@ export default function AppLayout() {
             </button>
           </div>
 
-          <div className={`border-t border-gray-100 ${collapsed ? 'p-2.5' : 'p-4'}`}>
+          {/* ---------- Perfil (cima) + Logout (baixo) ---------- */}
+          <div className={`border-t border-gray-100 ${collapsed ? 'p-2.5 space-y-2' : 'p-4 space-y-2'}`}>
+
+            {/* Perfil */}
             <button
               onClick={() => navigate('/app/perfil')}
               className={`w-full flex items-center rounded-xl
                 hover:bg-gray-50 active:bg-gray-100 transition text-left
                 ${collapsed ? 'justify-center p-2' : 'gap-3.5 px-3 py-2.5'}`}
+              title={collapsed ? 'Ver o meu perfil' : undefined}
             >
               <div className="w-11 h-11 rounded-full bg-brand-100 overflow-hidden
                 flex items-center justify-center shrink-0 border-2 border-white shadow-sm">
@@ -540,6 +544,19 @@ export default function AppLayout() {
                   <p className="text-[11.5px] text-gray-400 truncate mt-0.5">Ver o meu perfil</p>
                 </div>
               )}
+            </button>
+
+            {/* Logout */}
+            <button
+              onClick={() => setShowLogoutConfirm(true)}
+              className={`w-full flex items-center rounded-xl font-semibold
+                text-red-600 hover:bg-red-50 active:bg-red-100
+                transition-all duration-200
+                ${collapsed ? 'justify-center p-3' : 'gap-3.5 px-3 py-2.5'}`}
+              title={collapsed ? 'Terminar sessão' : undefined}
+            >
+              <i className="fi fi-rr-sign-out-alt text-[20px] leading-none shrink-0" />
+              {!collapsed && <span className="text-[14.5px]">Terminar sessão</span>}
             </button>
           </div>
         </aside>
@@ -560,7 +577,7 @@ export default function AppLayout() {
 
       {/* ============ BOTTOM NAVBAR (mobile) ============ */}
       <nav className="md:hidden shrink-0 bg-white border-t border-gray-100 z-40">
-        <div className="grid grid-cols-4">
+        <div className="grid grid-cols-3">
           {mobileNav.map((t) => (
             <NavLink
               key={t.to}
@@ -693,6 +710,62 @@ export default function AppLayout() {
           </button>
         </div>
       </div>
+
+      {/* ============ MODAL DE CONFIRMAÇÃO LOGOUT (desktop) ============ */}
+      {showLogoutConfirm && (
+        <div className="hidden md:flex fixed inset-0 z-[300] items-center justify-center">
+          <div
+            onClick={() => setShowLogoutConfirm(false)}
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+          />
+
+          <div className="relative w-full max-w-sm bg-white rounded-3xl p-7 shadow-2xl
+            animate-[logoutIn_200ms_cubic-bezier(0.22,1,0.36,1)]">
+
+            <style>{`
+              @keyframes logoutIn {
+                from { opacity: 0; transform: scale(0.95) translateY(10px); }
+                to   { opacity: 1; transform: scale(1) translateY(0); }
+              }
+            `}</style>
+
+            <div className="flex justify-center mb-5">
+              <div className="w-16 h-16 rounded-3xl bg-red-50 flex items-center justify-center">
+                <i className="fi fi-sr-sign-out-alt text-red-600 text-2xl leading-none" />
+              </div>
+            </div>
+
+            <h3 className="font-display text-[19px] font-extrabold text-gray-900 text-center">
+              Terminar sessão?
+            </h3>
+            <p className="mt-2 text-[13.5px] text-gray-500 text-center leading-relaxed">
+              Vais sair da tua conta. Podes sempre voltar a entrar quando quiseres.
+            </p>
+
+            <div className="mt-6 flex gap-2">
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                className="flex-1 py-3.5 rounded-xl bg-gray-100 text-gray-700
+                  font-semibold text-[14.5px]
+                  hover:bg-gray-200 active:bg-gray-300 transition"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleLogout}
+                className="flex-1 py-3.5 rounded-xl bg-red-600 text-white
+                  font-bold text-[14.5px]
+                  hover:bg-red-700 active:scale-[0.98] transition
+                  shadow-lg shadow-red-600/25
+                  flex items-center justify-center gap-2"
+              >
+                <i className="fi fi-rr-sign-out-alt text-base leading-none" />
+                Sair
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
