@@ -1,16 +1,26 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 
 /* ---------------------------------------------------------------
-   Registo com:
-   - Split layout (branding esquerda / form direita)
-   - Verificação de passwords + força
-   - Aceitação de termos obrigatória
-   - Google OAuth
-   - Redireccionamento inteligente (admin/user/onboarding)
+   Utilitário de idade
 ---------------------------------------------------------------- */
+function calcAge(birthDate) {
+  if (!birthDate) return null;
+  const b = new Date(birthDate);
+  const d = new Date();
+  let age = d.getFullYear() - b.getFullYear();
+  const m = d.getMonth() - b.getMonth();
+  if (m < 0 || (m === 0 && d.getDate() < b.getDate())) age--;
+  return age;
+}
+
+function maxBirthDate(minAge = 18) {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - minAge);
+  return d.toISOString().split('T')[0];
+}
 
 export default function Register() {
   const navigate = useNavigate();
@@ -31,16 +41,21 @@ export default function Register() {
 
   const update = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
-  /* ---------- Redireccionamento automático se já autenticado ---------- */
+  /* ---------- Redireccionamento se já autenticado ---------- */
   useEffect(() => {
     if (authLoading) return;
     if (!user) return;
-
     if (isAdmin) return navigate('/admin', { replace: true });
     if (!profile?.rules_accepted_at) return navigate('/onboarding/bem-vindo', { replace: true });
     if (!profile?.onboarding_completed) return navigate('/onboarding/perfil', { replace: true });
     navigate('/app/descobrir', { replace: true });
   }, [authLoading, user, isAdmin, profile, navigate]);
+
+  /* ---------- Idade calculada em tempo real ---------- */
+  const age = useMemo(() => calcAge(form.birth_date), [form.birth_date]);
+  const isAdult = age !== null && age >= 18;
+  const showAgeError = form.birth_date && !isAdult;
+  const maxDate = useMemo(() => maxBirthDate(18), []);
 
   /* ---------- Força da palavra-passe ---------- */
   const pwdStrength = (() => {
@@ -65,7 +80,24 @@ export default function Register() {
     setError('');
 
     if (!form.name.trim()) return setError('Diz-nos o teu nome.');
+    if (!form.email.trim()) return setError('Indica o teu email.');
+
+    // 🔞 Validação de idade
     if (!form.birth_date) return setError('Indica a tua data de nascimento.');
+
+    const computedAge = calcAge(form.birth_date);
+    if (computedAge === null) {
+      return setError('Data de nascimento inválida.');
+    }
+    if (computedAge < 18) {
+      return setError(
+        'Tens de ter pelo menos 18 anos para usar o Te Quero.'
+      );
+    }
+    if (computedAge > 120) {
+      return setError('Data de nascimento inválida. Verifica o ano.');
+    }
+
     if (form.password.length < 6) {
       return setError('A palavra-passe deve ter pelo menos 6 caracteres.');
     }
@@ -101,6 +133,9 @@ export default function Register() {
       if (msg.includes('email')) {
         return setError('Email inválido.');
       }
+      if (msg.includes('menores de 18') || msg.includes('check_violation')) {
+        return setError('Tens de ter pelo menos 18 anos para usar o Te Quero.');
+      }
       return setError(error.message);
     }
 
@@ -117,13 +152,10 @@ export default function Register() {
     if (error) setError(error.message);
   };
 
-  /* ---------- UI ---------- */
   return (
     <div className="min-h-screen bg-white lg:grid lg:grid-cols-2">
 
-      {/* ============================================================
-          COLUNA ESQUERDA — Branding (escondida em mobile)
-      ============================================================ */}
+      {/* ============ BRANDING ============ */}
       <aside className="hidden lg:flex relative overflow-hidden bg-gradient-to-br from-brand-500 via-brand-600 to-brand-800 text-white">
         <div className="absolute inset-0 opacity-20">
           <div className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-white blur-3xl" />
@@ -131,7 +163,6 @@ export default function Register() {
         </div>
 
         <div className="relative z-10 flex flex-col justify-between p-12 xl:p-16 w-full">
-          {/* Logo */}
           <Link to="/" className="inline-flex items-center gap-2.5 group w-max">
             <div className="w-11 h-11 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center border border-white/20">
               <i className="fi fi-sr-heart text-white text-lg leading-none" />
@@ -146,7 +177,6 @@ export default function Register() {
             </div>
           </Link>
 
-          {/* Texto central */}
           <div className="max-w-md">
             <h1 className="font-display text-[44px] xl:text-[52px] font-extrabold tracking-[-0.03em] leading-[1.05]">
               Começa agora.
@@ -160,7 +190,6 @@ export default function Register() {
               WhatsApp com quem quiseres.
             </p>
 
-            {/* Lista de vantagens */}
             <ul className="mt-8 space-y-3">
               {[
                 '3 contactos grátis ao criar conta',
@@ -175,9 +204,17 @@ export default function Register() {
                 </li>
               ))}
             </ul>
+
+            {/* Aviso 18+ */}
+            <div className="mt-8 inline-flex items-center gap-2.5 px-4 py-2.5 rounded-2xl
+              bg-white/10 backdrop-blur border border-white/20">
+              <i className="fi fi-sr-shield-check text-white text-base leading-none" />
+              <p className="text-[13px] font-semibold">
+                Plataforma exclusiva para <strong>maiores de 18 anos</strong>
+              </p>
+            </div>
           </div>
 
-          {/* Rodapé — apenas em desktop */}
           <div className="hidden lg:flex items-center justify-between text-xs text-white/60">
             <span>© 2026 Te Quero.</span>
             <a
@@ -192,14 +229,12 @@ export default function Register() {
         </div>
       </aside>
 
-      {/* ============================================================
-          COLUNA DIREITA — Formulário
-      ============================================================ */}
-      <main className="flex items-center justify-center px-6 sm:px-8 lg:px-12 py-10 sm:py-12 bg-white">
+      {/* ============ FORMULÁRIO ============ */}
+      <main className="flex items-center justify-center px-5 sm:px-8 lg:px-12 py-8 sm:py-10 bg-white">
         <div className="w-full max-w-[440px]">
 
           {/* Logo mobile */}
-          <div className="lg:hidden text-center mb-8">
+          <div className="lg:hidden text-center mb-6">
             <Link to="/" className="inline-flex items-center gap-2.5">
               <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-sm shadow-brand-600/30">
                 <i className="fi fi-sr-heart text-white text-lg leading-none" />
@@ -215,17 +250,24 @@ export default function Register() {
             </Link>
           </div>
 
-          {/* Título */}
-          <div className="mb-8">
-            <h1 className="font-display text-[28px] sm:text-[32px] font-extrabold tracking-tight text-gray-900 leading-tight">
+          <div className="mb-6">
+            <h1 className="font-display text-[26px] sm:text-[30px] font-extrabold tracking-tight text-gray-900 leading-tight">
               Cria a tua conta ❤️
             </h1>
-            <p className="mt-2 text-[14.5px] text-gray-500">
-              Leva menos de 1 minuto. Começa já a conhecer pessoas.
+            <p className="mt-2 text-[14px] text-gray-500">
+              Leva menos de 1 minuto. Só para <strong className="text-gray-700">maiores de 18 anos</strong>.
             </p>
           </div>
 
-          {/* Form */}
+          {/* Aviso 18+ (mobile) */}
+          <div className="lg:hidden mb-5 flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl
+            bg-brand-50 border border-brand-100">
+            <i className="fi fi-sr-shield-check text-brand-600 text-base leading-none shrink-0" />
+            <p className="text-[12.5px] font-medium text-brand-800 leading-snug">
+              Esta plataforma é exclusiva para <strong>maiores de 18 anos</strong>.
+            </p>
+          </div>
+
           <form onSubmit={handleRegister} className="space-y-4">
 
             {/* Nome */}
@@ -234,7 +276,7 @@ export default function Register() {
                 Nome
               </label>
               <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
                   <i className="fi fi-rr-user text-base leading-none" />
                 </span>
                 <input
@@ -258,7 +300,7 @@ export default function Register() {
                 Email
               </label>
               <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
                   <i className="fi fi-rr-envelope text-base leading-none" />
                 </span>
                 <input
@@ -276,13 +318,14 @@ export default function Register() {
               </div>
             </div>
 
-            {/* Data de nascimento */}
+            {/* Data de nascimento — com limite máximo = 18 anos atrás */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 Data de nascimento
               </label>
               <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
+                <span className={`absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none
+                  ${showAgeError ? 'text-red-500' : 'text-gray-400'}`}>
                   <i className="fi fi-rr-cake-birthday text-base leading-none" />
                 </span>
                 <input
@@ -290,15 +333,36 @@ export default function Register() {
                   required
                   value={form.birth_date}
                   onChange={update('birth_date')}
-                  className="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-300 bg-white
+                  max={maxDate}
+                  className={`w-full pl-11 pr-4 py-3 rounded-xl border bg-white
                     text-[15px] text-gray-900
                     focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500
-                    transition"
+                    transition
+                    ${showAgeError
+                      ? 'border-red-400 focus:border-red-500 focus:ring-red-500/30'
+                      : 'border-gray-300'}`}
                 />
               </div>
-              <p className="mt-1.5 text-xs text-gray-500">
-                Deves ter pelo menos 18 anos.
-              </p>
+
+              {/* Feedback dinâmico */}
+              {showAgeError ? (
+                <div className="mt-1.5 flex items-start gap-2 text-xs text-red-600
+                  bg-red-50 border border-red-200 rounded-lg px-2.5 py-2">
+                  <i className="fi fi-rr-exclamation text-sm leading-none mt-0.5 shrink-0" />
+                  <span>
+                    Tens <strong>{age} anos</strong>. Precisas ter pelo menos <strong>18 anos</strong> para te registares.
+                  </span>
+                </div>
+              ) : age !== null && isAdult ? (
+                <div className="mt-1.5 flex items-center gap-2 text-xs text-green-700">
+                  <i className="fi fi-sr-check-circle text-sm leading-none" />
+                  <span>Tens {age} anos ✓</span>
+                </div>
+              ) : (
+                <p className="mt-1.5 text-xs text-gray-500">
+                  Deves ter pelo menos 18 anos.
+                </p>
+              )}
             </div>
 
             {/* Palavra-passe */}
@@ -307,7 +371,7 @@ export default function Register() {
                 Palavra-passe
               </label>
               <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
                   <i className="fi fi-rr-lock text-base leading-none" />
                 </span>
                 <input
@@ -334,7 +398,6 @@ export default function Register() {
                 </button>
               </div>
 
-              {/* Barra de força */}
               {form.password && (
                 <div className="mt-2 flex items-center gap-2">
                   <div className="flex-1 h-1.5 rounded-full bg-gray-200 overflow-hidden">
@@ -356,7 +419,7 @@ export default function Register() {
                 Confirma a palavra-passe
               </label>
               <div className="relative">
-                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
                   <i className="fi fi-rr-lock text-base leading-none" />
                 </span>
                 <input
@@ -389,26 +452,45 @@ export default function Register() {
               )}
             </div>
 
-            {/* Termos */}
-            <label className="flex items-start gap-2.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={acceptTerms}
-                onChange={(e) => setAcceptTerms(e.target.checked)}
-                className="mt-0.5 w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500/40 shrink-0"
-              />
-              <span className="text-sm text-gray-600 leading-relaxed">
-                Aceito os{' '}
-                <a href="#" className="font-semibold text-brand-600 hover:text-brand-700 transition">
-                  Termos de Utilização
-                </a>{' '}
-                e a{' '}
-                <a href="#" className="font-semibold text-brand-600 hover:text-brand-700 transition">
-                  Política de Privacidade
-                </a>
-                .
-              </span>
-            </label>
+            {/* Termos + confirmação 18+ */}
+            <div className="space-y-3 pt-1">
+              <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={acceptTerms}
+                  onChange={(e) => setAcceptTerms(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500/40 shrink-0"
+                />
+                <span className="text-sm text-gray-600 leading-relaxed">
+                  Aceito os{' '}
+                  <a href="#" className="font-semibold text-brand-600 hover:text-brand-700 transition">
+                    Termos de Utilização
+                  </a>{' '}
+                  e a{' '}
+                  <a href="#" className="font-semibold text-brand-600 hover:text-brand-700 transition">
+                    Política de Privacidade
+                  </a>
+                  .
+                </span>
+              </label>
+
+              {/* Confirmação explícita 18+ */}
+              <label className="flex items-start gap-2.5 cursor-pointer select-none
+                p-3 rounded-xl border border-gray-200 hover:bg-gray-50 transition">
+                <input
+                  type="checkbox"
+                  checked={form.birth_date && isAdult}
+                  disabled
+                  readOnly
+                  className="mt-0.5 w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500/40 shrink-0
+                    disabled:cursor-not-allowed"
+                />
+                <span className="text-sm text-gray-600 leading-relaxed">
+                  Confirmo que tenho <strong>18 anos ou mais</strong> e que a
+                  data de nascimento indicada é verdadeira.
+                </span>
+              </label>
+            </div>
 
             {/* Erro */}
             {error && (
@@ -422,7 +504,7 @@ export default function Register() {
             {/* Botão */}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || (form.birth_date && !isAdult)}
               className="w-full py-3 rounded-xl bg-brand-600 text-white font-semibold text-[15px]
                 hover:bg-brand-700 active:scale-[0.99] transition
                 shadow-lg shadow-brand-600/25
@@ -480,7 +562,7 @@ export default function Register() {
           </p>
 
           {/* Links legais mobile */}
-          <div className="lg:hidden mt-10 flex items-center justify-center gap-4 text-xs text-gray-400">
+          <div className="lg:hidden mt-8 flex items-center justify-center gap-4 text-xs text-gray-400">
             <a href="#" className="hover:text-gray-600 transition">Privacidade</a>
             <span>·</span>
             <a href="#" className="hover:text-gray-600 transition">Termos</a>

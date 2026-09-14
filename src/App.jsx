@@ -22,6 +22,15 @@ import Profile from './pages/app/Profile';
 import UserProfile from './pages/app/UserProfile';
 import Chat from './pages/app/Chat';
 
+import AdminRoute from './components/AdminRoute';
+import AdminLayout from './pages/admin/AdminLayout';
+import AdminDashboard from './pages/admin/AdminDashboard';
+import AdminAccounts from './pages/admin/AdminAccounts';
+import AdminAdmins from './pages/admin/AdminAdmins';
+import AdminReports from './pages/admin/AdminReports';
+import AdminVerifications from './pages/admin/AdminVerifications';
+import AdminPlans from './pages/admin/AdminPlans';
+
 export default function App() {
   return (
     <AuthProvider>
@@ -62,6 +71,17 @@ export default function App() {
               <Route path="chat/:id" element={<Chat />} />   {/* ← NOVO */}
             </Route>
           </Route>
+
+          <Route element={<AdminRoute />}>
+  <Route path="/admin" element={<AdminLayout />}>
+    <Route index element={<AdminDashboard />} />
+    <Route path="contas" element={<AdminAccounts />} />
+    <Route path="verificacoes" element={<AdminVerifications />} />
+    <Route path="denuncias" element={<AdminReports />} />
+    <Route path="admins" element={<AdminAdmins />} />
+    <Route path="planos" element={<AdminPlans />} />
+  </Route>
+</Route>
 
           {/* ============ FALLBACK ============ */}
           <Route path="*" element={<Navigate to="/" replace />} />
