@@ -12,10 +12,22 @@ function WhatsAppIcon({ className = '' }) {
   );
 }
 
+/* ---------- Constrói link do WhatsApp a partir de profiles.whatsapp ---------- */
+function buildWaLink(whatsappNumber, targetName, myName) {
+  const digits = String(whatsappNumber || '').replace(/\D/g, '');
+  if (!digits) return null;
+
+  const firstName = targetName?.split(' ')[0] || '';
+  const myFirstName = myName?.split(' ')[0] || '';
+  const message = `Olá ${firstName}! Vi o teu perfil no Te Quero${myFirstName ? `. Sou o ${myFirstName}` : ''}. Podemos falar?`;
+
+  return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+}
+
 export default function UserProfile() {
   const { slug } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, profile: myProfile } = useAuth();
 
   const [profile, setProfile] = useState(null);
   const [liked, setLiked] = useState(false);
@@ -31,12 +43,12 @@ export default function UserProfile() {
   const [conversationId, setConversationId] = useState(null);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  /* ---------- Novo: pop-up "precisas de plano" ---------- */
+  /* ---------- Pop-up "precisas de plano" ---------- */
   const [showPlanPrompt, setShowPlanPrompt] = useState(false);
 
   const isMe = profile?.id === user?.id;
 
-  /* ---------- Carregar perfil ---------- */
+  /* ---------- Carregar perfil (inclui whatsapp) ---------- */
   useEffect(() => {
     if (!slug || !user) return;
 
@@ -45,7 +57,7 @@ export default function UserProfile() {
 
       const baseQuery = supabase
         .from('profiles')
-        .select('id, name, slug, birth_date, city, bio, avatar_url, gender, interests, photos, videos, plan, onboarding_completed, is_banned');
+        .select('id, name, slug, birth_date, city, bio, avatar_url, gender, interests, photos, videos, plan, onboarding_completed, is_banned, is_verified, whatsapp');
 
       const { data: profData, error: profError } = isUuid
         ? await baseQuery.eq('id', slug).maybeSingle()
@@ -112,46 +124,77 @@ export default function UserProfile() {
     }
   };
 
-  /* ---------- Iniciar conversa ---------- */
+  /* ============================================================
+     CONTACTAR — usa profiles.whatsapp
+  ============================================================ */
+  const targetHasWa = !!(profile?.whatsapp && String(profile.whatsapp).trim());
+
   const requestStartChat = () => {
     if (isMe || starting) return;
 
-    /* Já tem conversa → abre direto */
-    if (alreadyHasConv && conversationId) {
-      return navigate(`/app/chat/${conversationId}`);
+    /* 1) Sem WhatsApp → bloqueia */
+    if (!targetHasWa) {
+      return showToast('Este utilizador não adicionou WhatsApp.', 'error');
     }
 
-    /* Sem contactos → mostra pop-up de plano */
+    /* 2) Já tem conversa → abre WhatsApp direto (não gasta contacto) */
+    if (alreadyHasConv) {
+      const link = buildWaLink(profile.whatsapp, profile.name, myProfile?.name);
+      if (!link) return showToast('Este utilizador não adicionou WhatsApp.', 'error');
+      window.open(link, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    /* 3) Sem contactos → pop-up de plano */
     if (balance <= 0) {
       setShowPlanPrompt(true);
       return;
     }
 
-    /* Com contactos → confirma e usa 1 */
+    /* 4) Com contactos → confirma e usa 1 */
     setShowConfirm(true);
   };
 
   const executeStartChat = async () => {
+    if (!targetHasWa) {
+      setShowConfirm(false);
+      return showToast('Este utilizador não adicionou WhatsApp.', 'error');
+    }
+
     setShowConfirm(false);
     setStarting(true);
-    const { data, error } = await supabase.rpc('start_conversation', { target_user_id: profile.id });
+
+    /* Regista o contacto na BD (consome 1 contacto) */
+    const { data, error } = await supabase.rpc('start_conversation', {
+      target_user_id: profile.id,
+    });
     setStarting(false);
+
     if (error) return showToast(error.message, 'error');
+
     if (!data?.success) {
       const msgs = {
         no_balance: 'Sem contactos. Compra mais para continuar.',
         blocked: 'Não é possível contactar.',
         target_banned: 'Perfil indisponível.',
+        target_no_whatsapp: 'Este utilizador não adicionou WhatsApp.',
       };
       return showToast(msgs[data?.error] || 'Erro ao contactar.', 'error');
     }
+
     if (!data.already_existed) {
       setBalance((b) => Math.max(0, b - 1));
       setAlreadyHasConv(true);
+      if (data.conversation_id) setConversationId(data.conversation_id);
       if (navigator.vibrate) navigator.vibrate([10, 30, 10]);
-      showToast('Conversa iniciada.', 'success');
+      showToast('Contacto utilizado.', 'success');
     }
-    setTimeout(() => navigate(`/app/chat/${data.conversation_id}`), 400);
+
+    /* Abre WhatsApp com o número da tabela profiles */
+    const link = buildWaLink(profile.whatsapp, profile.name, myProfile?.name);
+    if (!link) return showToast('Este utilizador não adicionou WhatsApp.', 'error');
+
+    setTimeout(() => window.open(link, '_blank', 'noopener,noreferrer'), 200);
   };
 
   /* ---------- Partilhar ---------- */
@@ -279,6 +322,10 @@ export default function UserProfile() {
                       És tu
                     </span>
                   )}
+                  {profile.is_verified && (
+                    <i className="fi fi-sr-badge-check text-blue-500 text-[18px] leading-none"
+                      title="Perfil verificado" />
+                  )}
                   {alreadyHasConv && !isMe && (
                     <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider
                       bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
@@ -319,18 +366,25 @@ export default function UserProfile() {
                 <>
                   <button
                     onClick={requestStartChat}
-                    disabled={starting}
-                    className="flex-1 sm:flex-none min-w-[220px] px-5 py-3 rounded-xl
+                    disabled={starting || !targetHasWa}
+                    className={`flex-1 sm:flex-none min-w-[220px] px-5 py-3 rounded-xl
                       font-bold text-[14.5px] text-white
-                      bg-[#25D366] hover:bg-[#1eb356]
                       hover:scale-[1.02] active:scale-[0.98] transition-all
-                      disabled:opacity-60 disabled:cursor-not-allowed
-                      flex items-center justify-center gap-2.5 shadow-lg shadow-green-500/30"
+                      disabled:cursor-not-allowed
+                      flex items-center justify-center gap-2.5 shadow-lg
+                      ${targetHasWa
+                        ? 'bg-[#25D366] hover:bg-[#1eb356] shadow-green-500/30 disabled:opacity-70'
+                        : 'bg-gray-400 shadow-gray-400/20 cursor-not-allowed'}`}
                   >
                     {starting ? (
                       <>
                         <span className="h-4 w-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
                         A abrir...
+                      </>
+                    ) : !targetHasWa ? (
+                      <>
+                        <WhatsAppIcon className="w-5 h-5 opacity-70" />
+                        Sem WhatsApp
                       </>
                     ) : alreadyHasConv ? (
                       <>
@@ -371,7 +425,24 @@ export default function UserProfile() {
               )}
             </div>
 
-            {alreadyHasConv && !isMe && (
+            {/* Avisos de estado */}
+            {!isMe && !targetHasWa && (
+              <div className="mt-4 flex items-start gap-3 p-4 rounded-2xl bg-gray-50 border border-gray-200">
+                <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
+                  <WhatsAppIcon className="w-4 h-4 text-gray-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13.5px] font-bold text-gray-700">
+                    Utilizador sem WhatsApp
+                  </p>
+                  <p className="text-[12.5px] text-gray-500 mt-0.5 leading-snug">
+                    Esta pessoa ainda não adicionou o número ao perfil.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {alreadyHasConv && !isMe && targetHasWa && (
               <div className="mt-4 flex items-center gap-2 px-1">
                 <i className="fi fi-sr-check-circle text-green-600 text-[13px] leading-none" />
                 <p className="text-[12.5px] text-green-700 font-medium">
@@ -451,7 +522,7 @@ export default function UserProfile() {
       </div>
 
       {/* ===================================================== */}
-      {/* MODAL: PRECISAS DE PLANO (sem contactos)             */}
+      {/* MODAL: SEM CONTACTOS — PRECISAS DE PLANO             */}
       {/* ===================================================== */}
       {showPlanPrompt && !isMe && (
         <div className="fixed inset-0 z-[330] flex items-end sm:items-center justify-center">

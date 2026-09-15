@@ -20,6 +20,32 @@ const PROVINCES = {
 
 const PROVINCE_LIST = Object.keys(PROVINCES).sort();
 
+/* ---------- Países com código WhatsApp ---------- */
+const COUNTRIES = [
+  { code: 'MZ', flag: '🇲🇿', name: 'Moçambique',          dial: '+258' },
+  { code: 'PT', flag: '🇵🇹', name: 'Portugal',            dial: '+351' },
+  { code: 'ZA', flag: '🇿🇦', name: 'África do Sul',       dial: '+27'  },
+  { code: 'AO', flag: '🇦🇴', name: 'Angola',              dial: '+244' },
+  { code: 'BR', flag: '🇧🇷', name: 'Brasil',              dial: '+55'  },
+  { code: 'CV', flag: '🇨🇻', name: 'Cabo Verde',          dial: '+238' },
+  { code: 'GW', flag: '🇬🇼', name: 'Guiné-Bissau',        dial: '+245' },
+  { code: 'ST', flag: '🇸🇹', name: 'São Tomé e Príncipe', dial: '+239' },
+  { code: 'TL', flag: '🇹🇱', name: 'Timor-Leste',         dial: '+670' },
+  { code: 'ZW', flag: '🇿🇼', name: 'Zimbabué',            dial: '+263' },
+  { code: 'TZ', flag: '🇹🇿', name: 'Tanzânia',            dial: '+255' },
+  { code: 'ZM', flag: '🇿🇲', name: 'Zâmbia',              dial: '+260' },
+  { code: 'MW', flag: '🇲🇼', name: 'Malawi',              dial: '+265' },
+  { code: 'SZ', flag: '🇸🇿', name: 'Essuatíni',           dial: '+268' },
+  { code: 'NG', flag: '🇳🇬', name: 'Nigéria',             dial: '+234' },
+  { code: 'KE', flag: '🇰🇪', name: 'Quénia',              dial: '+254' },
+  { code: 'US', flag: '🇺🇸', name: 'Estados Unidos',      dial: '+1'   },
+  { code: 'GB', flag: '🇬🇧', name: 'Reino Unido',         dial: '+44'  },
+  { code: 'FR', flag: '🇫🇷', name: 'França',              dial: '+33'  },
+  { code: 'ES', flag: '🇪🇸', name: 'Espanha',             dial: '+34'  },
+];
+
+const DEFAULT_COUNTRY = COUNTRIES[0];
+
 const INTERESTS = [
   'Música', 'Viagens', 'Café', 'Livros', 'Praia', 'Arte',
   'Tecnologia', 'Futebol', 'Cozinha', 'Dança', 'Gastronomia',
@@ -34,19 +60,21 @@ const PAID_MAX_VIDEOS = 3;
 const MAX_PHOTO_MB = 10;
 const MAX_VIDEO_MB = 50;
 
-/* ---------- Planos de pagamento ---------- */
+/* ---------- Planos ---------- */
 const PAYMENT_PLANS = [
-  { id: 'p1', label: 'Plano 01', contacts: '3 contactos', price: 99,  priceLabel: '99 MZN',  tag: null },
+  { id: 'p1', label: 'Plano 01', contacts: '3 contactos',  price: 99,  priceLabel: '99 MZN',  tag: null },
   { id: 'p2', label: 'Plano 02', contacts: '10 contactos', price: 299, priceLabel: '299 MZN', tag: 'Popular' },
-  { id: 'p3', label: 'Plano 03', contacts: 'Ilimitado',   price: 299, priceLabel: '299 MZN', tag: null },
+  { id: 'p3', label: 'Plano 03', contacts: 'Ilimitado',    price: 299, priceLabel: '299 MZN', tag: null },
 ];
 
-/* ---------- Métodos de pagamento (Moçambique) ---------- */
 const PAYMENT_METHODS = [
   { id: 'mpesa', name: 'M-Pesa', subtitle: 'Vodacom', color: '#E60000', bg: '#FEE2E2' },
   { id: 'emola', name: 'e-Mola', subtitle: 'Movitel', color: '#EA580C', bg: '#FFEDD5' },
 ];
 
+/* ============================================================
+   Ícone WhatsApp
+============================================================ */
 function WhatsAppIcon({ className = '' }) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
@@ -55,10 +83,84 @@ function WhatsAppIcon({ className = '' }) {
   );
 }
 
-function formatPhone(raw) {
-  return raw.replace(/[^\d+]/g, '').slice(0, 15);
+/* ---------- Helpers ---------- */
+function digitsOnly(raw) { return String(raw || '').replace(/\D/g, ''); }
+
+function splitPhone(fullPhone) {
+  const digits = digitsOnly(fullPhone);
+  if (!digits) return { country: DEFAULT_COUNTRY, local: '' };
+
+  const sorted = [...COUNTRIES].sort((a, b) => b.dial.length - a.dial.length);
+  for (const c of sorted) {
+    const dialDigits = digitsOnly(c.dial);
+    if (digits.startsWith(dialDigits) && digits.length > dialDigits.length) {
+      return { country: c, local: digits.slice(dialDigits.length) };
+    }
+  }
+  return { country: DEFAULT_COUNTRY, local: digits };
 }
 
+function formatLocal(raw) {
+  const d = digitsOnly(raw).slice(0, 12);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `${d.slice(0, 3)} ${d.slice(3)}`;
+  return `${d.slice(0, 3)} ${d.slice(3, 6)} ${d.slice(6)}`;
+}
+
+function waLink(fullPhone) {
+  const digits = digitsOnly(fullPhone);
+  if (!digits) return null;
+  return `https://wa.me/${digits}`;
+}
+
+/* ============================================================
+   Componente: barra de progresso de limites
+============================================================ */
+function LimitBar({ current, freeMax, paidMax, isVerified, color = 'brand' }) {
+  const total = paidMax;
+  const dots = Array.from({ length: total });
+
+  const bgFill = color === 'brand' ? 'bg-brand-500' : 'bg-brand-500';
+  const bgFree = color === 'brand' ? 'bg-brand-500' : 'bg-brand-500';
+
+  return (
+    <div className="mt-2.5 flex items-center gap-3">
+      {/* Dots */}
+      <div className="flex items-center gap-1">
+        {dots.map((_, i) => {
+          const filled = i < current;
+          const isPaidZone = i >= freeMax;
+
+          return (
+            <span
+              key={i}
+              className={`w-2.5 h-2.5 rounded-full transition-colors
+                ${filled
+                  ? (isPaidZone && !isVerified ? 'bg-amber-400' : bgFill)
+                  : 'bg-gray-200'}`}
+            />
+          );
+        })}
+      </div>
+
+      {/* Contador */}
+      <span className="text-[11.5px] font-semibold text-gray-500 tabular-nums">
+        {current} de {total}
+      </span>
+
+      {/* Marca da fronteira "grátis" */}
+      {!isVerified && (
+        <span className="text-[10.5px] text-amber-600 font-bold">
+          · grátis até {freeMax}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   Profile
+============================================================ */
 export default function Profile() {
   const { profile: authProfile, user, refreshProfile } = useAuth();
   const navigate = useNavigate();
@@ -79,6 +181,12 @@ export default function Profile() {
     photos: [],
     videos: [],
   });
+
+  /* ---------- WhatsApp separado ---------- */
+  const [waCountry, setWaCountry] = useState(DEFAULT_COUNTRY);
+  const [waLocal, setWaLocal] = useState('');
+  const [countryOpen, setCountryOpen] = useState(false);
+  const countryRef = useRef(null);
 
   const [newAvatarFile, setNewAvatarFile] = useState(null);
   const [newAvatarPreview, setNewAvatarPreview] = useState(null);
@@ -101,6 +209,16 @@ export default function Profile() {
   const currentPlanObj = PAYMENT_PLANS.find((p) => p.id === selectedPlan) || PAYMENT_PLANS[1];
 
   useEffect(() => {
+    const onClick = (e) => {
+      if (countryRef.current && !countryRef.current.contains(e.target)) {
+        setCountryOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, []);
+
+  useEffect(() => {
     if (!authProfile) return;
     const city = authProfile.city || '';
     const parts = city.split(',').map((s) => s.trim());
@@ -117,6 +235,11 @@ export default function Profile() {
       photos: Array.isArray(authProfile.photos) ? authProfile.photos : [],
       videos: Array.isArray(authProfile.videos) ? authProfile.videos : [],
     });
+
+    const stored = authProfile.whatsapp || authProfile.phone || '';
+    const { country, local } = splitPhone(stored);
+    setWaCountry(country);
+    setWaLocal(local);
   }, [authProfile]);
 
   useEffect(() => {
@@ -141,21 +264,14 @@ export default function Profile() {
     }));
   };
 
-  /* ---------- Upload robusto ---------- */
   const uploadFile = async (file, folder) => {
     const rawExt = file.name.split('.').pop();
     const ext = (rawExt && rawExt.length <= 5 ? rawExt : (file.type?.split('/')[1] || 'bin')).toLowerCase();
     const path = `${user.id}/${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
-    console.log(`[upload] → ${folder} | ${file.name} | ${(file.size / 1024 / 1024).toFixed(2)}MB | type="${file.type}"`);
-
     const { error } = await supabase.storage
       .from('avatars')
-      .upload(path, file, {
-        upsert: false,
-        cacheControl: '3600',
-        contentType: file.type || undefined,
-      });
+      .upload(path, file, { upsert: false, cacheControl: '3600', contentType: file.type || undefined });
 
     if (error) {
       console.error('[upload] erro Supabase:', error);
@@ -163,11 +279,9 @@ export default function Profile() {
     }
 
     const { data } = supabase.storage.from('avatars').getPublicUrl(path);
-    console.log('[upload] ✓', data.publicUrl);
     return data.publicUrl;
   };
 
-  /* ---------- Avatar ---------- */
   const pickAvatar = (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -181,7 +295,9 @@ export default function Profile() {
     setNewAvatarPreview(URL.createObjectURL(file));
   };
 
-  /* ---------- Fotos ---------- */
+  /* ============================================================
+     FOTOS — limite rigoroso
+  ============================================================ */
   const pickPhotos = (e) => {
     const files = Array.from(e.target.files || []);
     e.target.value = '';
@@ -189,6 +305,7 @@ export default function Profile() {
 
     const currentTotal = form.photos.length + photoFiles.length;
 
+    // Já atingiu o limite do seu plano
     if (currentTotal >= maxPhotos) {
       if (!isVerified) {
         setUpgradeReason('photos');
@@ -212,6 +329,21 @@ export default function Profile() {
       valid.push({ file, preview: URL.createObjectURL(file) });
     }
 
+    // Se tentou carregar mais do que o permitido → avisa + abre modal
+    if (files.length > available && !isVerified) {
+      const restante = files.length - available;
+      showToast(
+        `${restante} foto${restante !== 1 ? 's' : ''} ignorada${restante !== 1 ? 's' : ''} — limite grátis de ${FREE_MAX_PHOTOS}.`,
+        'error'
+      );
+      setPhotoFiles((prev) => [...prev, ...valid]);
+      setTimeout(() => {
+        setUpgradeReason('photos');
+        setShowUpgradeGate(true);
+      }, 400);
+      return;
+    }
+
     setPhotoFiles((prev) => [...prev, ...valid]);
   };
 
@@ -223,13 +355,13 @@ export default function Profile() {
     setPhotoFiles((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  /* ---------- Vídeos (robusto) ---------- */
+  /* ============================================================
+     VÍDEOS — limite rigoroso
+  ============================================================ */
   const pickVideo = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-
-    console.log('[video] escolhido:', file.name, file.type, `${(file.size / 1024 / 1024).toFixed(2)}MB`);
 
     if (form.videos.length >= maxVideos) {
       if (!isVerified) {
@@ -251,10 +383,7 @@ export default function Profile() {
     const videoExts = ['mp4', 'mov', 'webm', 'm4v', '3gp', 'avi', 'mkv'];
     const looksLikeVideo = file.type.startsWith('video/') || videoExts.includes(ext);
 
-    if (!looksLikeVideo) {
-      console.warn('[video] tipo inválido:', file.type, ext);
-      return showToast('Ficheiro não é um vídeo.', 'error');
-    }
+    if (!looksLikeVideo) return showToast('Ficheiro não é um vídeo.', 'error');
 
     showToast('A carregar vídeo…', 'info');
 
@@ -263,7 +392,6 @@ export default function Profile() {
       setForm((f) => ({ ...f, videos: [...f.videos, url] }));
       showToast('Vídeo carregado.', 'success');
     } catch (err) {
-      console.error('[video] falhou:', err);
       showToast(err.message || 'Erro no upload.', 'error');
     }
   };
@@ -272,10 +400,16 @@ export default function Profile() {
     setForm((f) => ({ ...f, videos: f.videos.filter((_, i) => i !== idx) }));
   };
 
-  /* ---------- Guardar ---------- */
   const handleSave = async () => {
     if (!form.name.trim()) return showToast('O nome é obrigatório.', 'error');
     if (!form.birth_date) return showToast('Indica a data de nascimento.', 'error');
+
+    const localDigits = digitsOnly(waLocal);
+    const fullWhatsapp = localDigits ? `${waCountry.dial}${localDigits}` : '';
+
+    if (localDigits && localDigits.length < 8) {
+      return showToast('Número de WhatsApp inválido.', 'error');
+    }
 
     setLoading(true);
 
@@ -303,6 +437,7 @@ export default function Profile() {
           city,
           bio: form.bio.trim() || null,
           interests: form.interests,
+          whatsapp: fullWhatsapp || null,
           avatar_url,
           photos: [...form.photos, ...uploadedPhotos],
           videos: form.videos,
@@ -344,6 +479,11 @@ export default function Profile() {
       videos: Array.isArray(authProfile.videos) ? authProfile.videos : [],
     });
 
+    const stored = authProfile.whatsapp || authProfile.phone || '';
+    const { country, local } = splitPhone(stored);
+    setWaCountry(country);
+    setWaLocal(local);
+
     setNewAvatarFile(null);
     setNewAvatarPreview(null);
     setPhotoFiles([]);
@@ -366,9 +506,6 @@ export default function Profile() {
     return a;
   };
 
-  /* ===================================================== */
-  /* ============ UPGRADE / PAGAMENTO ===================== */
-  /* ===================================================== */
   const goToPayment = () => {
     setPaymentPhone(authProfile?.whatsapp || authProfile?.phone || '');
     setSelectedPlan('p2');
@@ -380,7 +517,7 @@ export default function Profile() {
   };
 
   const startPayment = async () => {
-    const clean = formatPhone(paymentPhone);
+    const clean = digitsOnly(paymentPhone);
     if (!clean || clean.length < 9) {
       setPaymentError('Insere um número válido.');
       return;
@@ -390,18 +527,10 @@ export default function Profile() {
     setPaymentStatus('processing');
 
     try {
-      await supabase
-        .from('profiles')
-        .update({ whatsapp: clean })
-        .eq('id', user.id);
+      await supabase.from('profiles').update({ whatsapp: paymentPhone }).eq('id', user.id);
 
       const { data, error } = await supabase.functions.invoke('initiate-plan-payment', {
-        body: {
-          plan_id: selectedPlan,
-          plan_price: currentPlanObj.price,
-          method: paymentMethod,
-          phone: clean,
-        },
+        body: { plan_id: selectedPlan, plan_price: currentPlanObj.price, method: paymentMethod, phone: clean },
       });
 
       if (error || !data?.success) {
@@ -476,6 +605,8 @@ export default function Profile() {
   const photosLocked = !isVerified && totalPhotos >= FREE_MAX_PHOTOS;
   const videosLocked = !isVerified && totalVideos >= FREE_MAX_VIDEOS;
 
+  const waFull = waLocal ? `${waCountry.dial}${digitsOnly(waLocal)}` : '';
+
   return (
     <>
       <div className="max-w-[1100px] mx-auto">
@@ -498,31 +629,24 @@ export default function Profile() {
               onClick={() => setEditing(true)}
               className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl
                 bg-gray-900 text-white text-[13.5px] font-semibold
-                hover:bg-gray-800 active:scale-[0.98] transition shadow-sm"
-            >
+                hover:bg-gray-800 active:scale-[0.98] transition shadow-sm">
               <i className="fi fi-rr-pencil text-base leading-none" />
               <span className="hidden sm:inline">Editar perfil</span>
               <span className="sm:hidden">Editar</span>
             </button>
           ) : (
             <div className="shrink-0 flex items-center gap-2">
-              <button
-                onClick={handleCancel}
-                disabled={loading}
+              <button onClick={handleCancel} disabled={loading}
                 className="px-3.5 py-2.5 rounded-xl bg-gray-100 text-gray-700
                   text-[13.5px] font-semibold hover:bg-gray-200
-                  disabled:opacity-50 transition"
-              >
+                  disabled:opacity-50 transition">
                 Cancelar
               </button>
-              <button
-                onClick={handleSave}
-                disabled={loading}
+              <button onClick={handleSave} disabled={loading}
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl
                   bg-brand-600 text-white text-[13.5px] font-bold
                   hover:bg-brand-700 disabled:opacity-60
-                  active:scale-[0.98] transition shadow-lg shadow-brand-600/25"
-              >
+                  active:scale-[0.98] transition shadow-lg shadow-brand-600/25">
                 {loading ? (
                   <>
                     <span className="h-3.5 w-3.5 border-2 border-white/40 border-t-white
@@ -540,7 +664,7 @@ export default function Profile() {
           )}
         </div>
 
-        {/* ============ CABEÇALHO DO PERFIL (avatar + info) ============ */}
+        {/* ============ CABEÇALHO DO PERFIL ============ */}
         <div className="bg-white rounded-3xl border border-gray-100 p-6 sm:p-8">
           <div className="flex flex-col sm:flex-row sm:items-start gap-6">
             <div className="shrink-0 mx-auto sm:mx-0">
@@ -604,6 +728,19 @@ export default function Profile() {
                     <p className="mt-3 text-[14px] text-gray-700 leading-relaxed max-w-2xl mx-auto sm:mx-0">
                       {form.bio}
                     </p>
+                  )}
+
+                  {waFull && (
+                    <div className="mt-4 flex justify-center sm:justify-start">
+                      <a href={waLink(waFull)} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl
+                          bg-[#25D366] text-white font-bold text-[13.5px]
+                          hover:bg-[#1eb356] active:scale-[0.98] transition
+                          shadow-lg shadow-green-500/25">
+                        <WhatsAppIcon className="w-4 h-4" />
+                        Falar no WhatsApp
+                      </a>
+                    </div>
                   )}
 
                   {form.interests.length > 0 && (
@@ -682,17 +819,93 @@ export default function Profile() {
                 </div>
               </div>
 
+              {/* WhatsApp */}
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-3">
+                  Contacto WhatsApp
+                </p>
+
+                <div className="flex items-stretch gap-2">
+                  <div className="relative shrink-0" ref={countryRef}>
+                    <button
+                      type="button"
+                      onClick={() => setCountryOpen((v) => !v)}
+                      className={`h-full flex items-center gap-2 pl-3 pr-2.5 rounded-xl
+                        border transition min-w-[110px]
+                        ${countryOpen
+                          ? 'border-green-500 bg-white ring-2 ring-green-500/20'
+                          : 'border-gray-200 bg-gray-50 hover:bg-white hover:border-gray-300'}`}>
+                      <span className="text-xl leading-none">{waCountry.flag}</span>
+                      <span className="text-[14px] font-bold text-gray-900 tabular-nums">
+                        {waCountry.dial}
+                      </span>
+                      <i className={`fi fi-rr-angle-small-down text-gray-400 text-sm leading-none
+                        transition-transform ${countryOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {countryOpen && (
+                      <div className="absolute left-0 top-full mt-2 w-[280px] max-h-[320px]
+                        overflow-y-auto bg-white rounded-2xl shadow-2xl border border-gray-100
+                        p-1.5 z-[120]">
+                        <p className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                          País
+                        </p>
+                        {COUNTRIES.map((c) => {
+                          const active = c.code === waCountry.code;
+                          return (
+                            <button key={c.code} type="button"
+                              onClick={() => { setWaCountry(c); setCountryOpen(false); }}
+                              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left
+                                transition ${active
+                                  ? 'bg-green-50 text-green-700'
+                                  : 'hover:bg-gray-50 text-gray-700'}`}>
+                              <span className="text-lg leading-none shrink-0">{c.flag}</span>
+                              <span className="flex-1 text-[13px] font-medium truncate">{c.name}</span>
+                              <span className="text-[12.5px] font-bold text-gray-500 tabular-nums">
+                                {c.dial}
+                              </span>
+                              {active && (
+                                <i className="fi fi-sr-check text-green-600 text-sm leading-none" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex-1 flex items-center gap-2 px-3.5 rounded-xl
+                    bg-gray-50 border border-gray-200
+                    focus-within:border-green-500 focus-within:bg-white transition">
+                    <div className="w-9 h-9 rounded-full bg-[#25D366]/10
+                      flex items-center justify-center shrink-0">
+                      <WhatsAppIcon className="w-4 h-4 text-[#25D366]" />
+                    </div>
+                    <input type="tel" inputMode="tel" autoComplete="tel"
+                      placeholder="84 000 0000"
+                      value={formatLocal(waLocal)}
+                      onChange={(e) => setWaLocal(digitsOnly(e.target.value).slice(0, 12))}
+                      className="flex-1 bg-transparent outline-none py-3
+                        text-[15px] font-semibold text-gray-900
+                        placeholder:text-gray-400 placeholder:font-normal" />
+                  </div>
+                </div>
+
+                <p className="mt-1.5 text-[11.5px] text-gray-500 leading-snug">
+                  Este número é usado para te contactarem no WhatsApp.
+                  {waLocal && (
+                    <> Guardado como <strong className="text-gray-700">{waCountry.dial} {formatLocal(waLocal)}</strong>.</>
+                  )}
+                </p>
+              </div>
+
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-3">
                   Sobre ti
                 </p>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-[12.5px] font-semibold text-gray-700">
-                    Breve descrição
-                  </label>
-                  <span className="text-[11px] text-gray-400 tabular-nums">
-                    {form.bio.length}/200
-                  </span>
+                  <label className="text-[12.5px] font-semibold text-gray-700">Breve descrição</label>
+                  <span className="text-[11px] text-gray-400 tabular-nums">{form.bio.length}/200</span>
                 </div>
                 <textarea rows={3} maxLength={200} value={form.bio} onChange={update('bio')}
                   placeholder="Sou uma pessoa tranquila, gosto de música, tecnologia..."
@@ -731,16 +944,46 @@ export default function Profile() {
           )}
         </div>
 
-        {/* ============ FOTOS ============ */}
+        {/* ============================================================ */}
+        {/* ============ FOTOS ========================================= */}
+        {/* ============================================================ */}
         <div className="mt-6 bg-white rounded-3xl border border-gray-100 p-6 sm:p-8">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h3 className="font-display text-[17px] font-extrabold text-gray-900 flex items-center gap-2">
-                <i className="fi fi-sr-picture text-brand-600 text-base leading-none" />
-                Fotos
-              </h3>
-              <p className="text-[12.5px] text-gray-500 mt-0.5">
-                {totalPhotos} de {PAID_MAX_PHOTOS} fotos
+          <div className="flex items-start justify-between mb-5 gap-3 flex-wrap">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-display text-[17px] font-extrabold text-gray-900 flex items-center gap-2">
+                  <i className="fi fi-sr-picture text-brand-600 text-base leading-none" />
+                  Fotos
+                </h3>
+                {!isVerified && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full
+                    bg-amber-50 border border-amber-200 text-[10px] font-bold uppercase tracking-wider text-amber-700">
+                    <i className="fi fi-sr-lock text-[9px] leading-none" />
+                    Plano grátis
+                  </span>
+                )}
+                {photosLocked && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full
+                    bg-red-50 border border-red-200 text-[10px] font-bold uppercase tracking-wider text-red-600">
+                    Limite atingido
+                  </span>
+                )}
+              </div>
+
+              {/* Barra + contador */}
+              <LimitBar
+                current={totalPhotos}
+                freeMax={FREE_MAX_PHOTOS}
+                paidMax={PAID_MAX_PHOTOS}
+                isVerified={isVerified}
+                color="brand"
+              />
+
+              {/* Explicação do limite */}
+              <p className="mt-2 text-[11.5px] text-gray-400 leading-snug">
+                {isVerified
+                  ? `Podes ter até ${PAID_MAX_PHOTOS} fotos no teu perfil.`
+                  : `No plano grátis podes ter ${FREE_MAX_PHOTOS} fotos. Ativa um plano para chegar a ${PAID_MAX_PHOTOS}.`}
               </p>
             </div>
 
@@ -749,14 +992,14 @@ export default function Profile() {
                 <button type="button" onClick={() => { setUpgradeReason('photos'); setShowUpgradeGate(true); }}
                   className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl
                     bg-amber-50 text-amber-700 text-[13px] font-semibold
-                    hover:bg-amber-100 transition border border-amber-200">
+                    hover:bg-amber-100 transition border border-amber-200 shrink-0">
                   <i className="fi fi-sr-lock text-base leading-none" />
                   Desbloquear mais
                 </button>
               ) : (
                 <label className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl
                   bg-brand-50 text-brand-700 text-[13px] font-semibold
-                  cursor-pointer hover:bg-brand-100 transition">
+                  cursor-pointer hover:bg-brand-100 transition shrink-0">
                   <i className="fi fi-rr-plus text-base leading-none" />
                   Adicionar
                   <input type="file" accept="image/*" multiple onChange={pickPhotos} className="hidden" />
@@ -773,6 +1016,11 @@ export default function Profile() {
               <p className="text-[13px] text-gray-500">
                 {editing ? 'Ainda sem fotos. Adiciona algumas!' : 'Sem fotos publicadas.'}
               </p>
+              {editing && !isVerified && (
+                <p className="mt-1 text-[11.5px] text-amber-600 font-medium">
+                  Plano grátis: até {FREE_MAX_PHOTOS} fotos
+                </p>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -819,6 +1067,11 @@ export default function Profile() {
                     <i className="fi fi-rr-plus text-brand-600 text-base leading-none" />
                   </div>
                   <span className="text-[11px] font-semibold text-gray-500">Adicionar</span>
+                  {!isVerified && (
+                    <span className="text-[9.5px] text-amber-600 font-bold">
+                      {FREE_MAX_PHOTOS - totalPhotos} restante{FREE_MAX_PHOTOS - totalPhotos !== 1 ? 's' : ''}
+                    </span>
+                  )}
                   <input type="file" accept="image/*" multiple onChange={pickPhotos} className="hidden" />
                 </label>
               )}
@@ -835,22 +1088,53 @@ export default function Profile() {
                   <span className="text-[11px] font-semibold text-amber-700 px-2 text-center leading-tight">
                     Desbloquear<br />mais fotos
                   </span>
+                  <span className="text-[9.5px] text-amber-600 font-bold mt-0.5">
+                    +{PAID_MAX_PHOTOS - FREE_MAX_PHOTOS} com plano
+                  </span>
                 </button>
               )}
             </div>
           )}
         </div>
 
-        {/* ============ VÍDEOS ============ */}
+        {/* ============================================================ */}
+        {/* ============ VÍDEOS ======================================== */}
+        {/* ============================================================ */}
         <div className="mt-6 bg-white rounded-3xl border border-gray-100 p-6 sm:p-8">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h3 className="font-display text-[17px] font-extrabold text-gray-900 flex items-center gap-2">
-                <i className="fi fi-sr-play text-brand-600 text-base leading-none" />
-                Vídeos
-              </h3>
-              <p className="text-[12.5px] text-gray-500 mt-0.5">
-                {totalVideos} de {PAID_MAX_VIDEOS} vídeos
+          <div className="flex items-start justify-between mb-5 gap-3 flex-wrap">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-display text-[17px] font-extrabold text-gray-900 flex items-center gap-2">
+                  <i className="fi fi-sr-play text-brand-600 text-base leading-none" />
+                  Vídeos
+                </h3>
+                {!isVerified && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full
+                    bg-amber-50 border border-amber-200 text-[10px] font-bold uppercase tracking-wider text-amber-700">
+                    <i className="fi fi-sr-lock text-[9px] leading-none" />
+                    Plano grátis
+                  </span>
+                )}
+                {videosLocked && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full
+                    bg-red-50 border border-red-200 text-[10px] font-bold uppercase tracking-wider text-red-600">
+                    Limite atingido
+                  </span>
+                )}
+              </div>
+
+              <LimitBar
+                current={totalVideos}
+                freeMax={FREE_MAX_VIDEOS}
+                paidMax={PAID_MAX_VIDEOS}
+                isVerified={isVerified}
+                color="brand"
+              />
+
+              <p className="mt-2 text-[11.5px] text-gray-400 leading-snug">
+                {isVerified
+                  ? `Podes ter até ${PAID_MAX_VIDEOS} vídeos no teu perfil.`
+                  : `No plano grátis podes ter ${FREE_MAX_VIDEOS} vídeos. Ativa um plano para chegar a ${PAID_MAX_VIDEOS}.`}
               </p>
             </div>
 
@@ -859,14 +1143,14 @@ export default function Profile() {
                 <button type="button" onClick={() => { setUpgradeReason('videos'); setShowUpgradeGate(true); }}
                   className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl
                     bg-amber-50 text-amber-700 text-[13px] font-semibold
-                    hover:bg-amber-100 transition border border-amber-200">
+                    hover:bg-amber-100 transition border border-amber-200 shrink-0">
                   <i className="fi fi-sr-lock text-base leading-none" />
                   Desbloquear mais
                 </button>
               ) : (
                 <label className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl
                   bg-brand-50 text-brand-700 text-[13px] font-semibold
-                  cursor-pointer hover:bg-brand-100 transition">
+                  cursor-pointer hover:bg-brand-100 transition shrink-0">
                   <i className="fi fi-rr-plus text-base leading-none" />
                   Adicionar
                   <input type="file" accept="video/*" onChange={pickVideo} className="hidden" />
@@ -883,6 +1167,11 @@ export default function Profile() {
               <p className="text-[13px] text-gray-500">
                 {editing ? 'Ainda sem vídeos. Adiciona alguns!' : 'Sem vídeos publicados.'}
               </p>
+              {editing && !isVerified && (
+                <p className="mt-1 text-[11.5px] text-amber-600 font-medium">
+                  Plano grátis: até {FREE_MAX_VIDEOS} vídeos
+                </p>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -890,10 +1179,7 @@ export default function Profile() {
                 <div key={i} className="relative aspect-[3/4] rounded-xl overflow-hidden bg-black group">
                   <video
                     src={src}
-                    muted
-                    playsInline
-                    preload="metadata"
-                    crossOrigin="anonymous"
+                    muted playsInline preload="metadata" crossOrigin="anonymous"
                     onLoadedMetadata={(ev) => {
                       try { ev.currentTarget.currentTime = 0.1; } catch (_) {}
                     }}
@@ -925,6 +1211,11 @@ export default function Profile() {
                     <i className="fi fi-rr-video-camera text-brand-600 text-base leading-none" />
                   </div>
                   <span className="text-[11px] font-semibold text-gray-500">Adicionar</span>
+                  {!isVerified && (
+                    <span className="text-[9.5px] text-amber-600 font-bold">
+                      {FREE_MAX_VIDEOS - totalVideos} restante{FREE_MAX_VIDEOS - totalVideos !== 1 ? 's' : ''}
+                    </span>
+                  )}
                   <input type="file" accept="video/*" onChange={pickVideo} className="hidden" />
                 </label>
               )}
@@ -940,6 +1231,9 @@ export default function Profile() {
                   </div>
                   <span className="text-[11px] font-semibold text-amber-700 px-2 text-center leading-tight">
                     Desbloquear<br />mais vídeos
+                  </span>
+                  <span className="text-[9.5px] text-amber-600 font-bold mt-0.5">
+                    +{PAID_MAX_VIDEOS - FREE_MAX_VIDEOS} com plano
                   </span>
                 </button>
               )}
@@ -970,10 +1264,10 @@ export default function Profile() {
             <div className="sm:hidden w-12 h-1.5 rounded-full bg-gray-300 mx-auto mb-5" />
 
             <div className="flex justify-center mb-4">
-              <div className="w-20 h-20 rounded-3xl bg-green-50 flex items-center justify-center relative">
-                <i className="fi fi-sr-lock text-green-600 text-3xl leading-none" />
+              <div className="w-20 h-20 rounded-3xl bg-amber-50 flex items-center justify-center relative">
+                <i className="fi fi-sr-lock text-amber-600 text-3xl leading-none" />
                 <span className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-white
-                  border-2 border-green-100 flex items-center justify-center">
+                  border-2 border-amber-100 flex items-center justify-center">
                   <i className="fi fi-sr-star text-amber-500 text-sm leading-none" />
                 </span>
               </div>
@@ -984,23 +1278,56 @@ export default function Profile() {
             </h3>
 
             <p className="mt-3 text-[14.5px] text-gray-600 text-center leading-relaxed">
-              O limite é de{' '}
-              <strong className="text-gray-900">
-                {upgradeReason === 'photos' ? PAID_MAX_PHOTOS : PAID_MAX_VIDEOS}{' '}
-                {upgradeReason === 'photos' ? 'fotos' : 'vídeos'}
-              </strong>
-              . Sem plano só podes ter{' '}
-              <strong className="text-gray-900">2 imagens e 2 vídeos</strong>.
-              Ativa um plano para desbloquear tudo.
+              {upgradeReason === 'photos' ? (
+                <>
+                  No plano grátis só podes ter{' '}
+                  <strong className="text-gray-900">{FREE_MAX_PHOTOS} fotos</strong>.
+                  Com um plano podes subir até{' '}
+                  <strong className="text-gray-900">{PAID_MAX_PHOTOS} fotos</strong>.
+                </>
+              ) : (
+                <>
+                  No plano grátis só podes ter{' '}
+                  <strong className="text-gray-900">{FREE_MAX_VIDEOS} vídeos</strong>.
+                  Com um plano podes subir até{' '}
+                  <strong className="text-gray-900">{PAID_MAX_VIDEOS} vídeos</strong>.
+                </>
+              )}
             </p>
+
+            <div className="mt-5 grid grid-cols-2 gap-2.5">
+              <div className="rounded-2xl p-3.5 border-2 border-gray-200 bg-gray-50 text-center">
+                <p className="text-[10.5px] font-bold uppercase tracking-wider text-gray-500">
+                  Grátis
+                </p>
+                <p className="mt-1.5 font-display text-[28px] font-extrabold text-gray-400 leading-none">
+                  {upgradeReason === 'photos' ? FREE_MAX_PHOTOS : FREE_MAX_VIDEOS}
+                </p>
+                <p className="text-[10.5px] text-gray-400 mt-1">
+                  {upgradeReason === 'photos' ? 'fotos' : 'vídeos'}
+                </p>
+              </div>
+
+              <div className="rounded-2xl p-3.5 border-2 border-amber-400 bg-amber-50 text-center">
+                <p className="text-[10.5px] font-bold uppercase tracking-wider text-amber-700">
+                  Com plano
+                </p>
+                <p className="mt-1.5 font-display text-[28px] font-extrabold text-amber-700 leading-none">
+                  {upgradeReason === 'photos' ? PAID_MAX_PHOTOS : PAID_MAX_VIDEOS}
+                </p>
+                <p className="text-[10.5px] text-amber-700 mt-1">
+                  {upgradeReason === 'photos' ? 'fotos' : 'vídeos'}
+                </p>
+              </div>
+            </div>
 
             <div className="mt-6 flex flex-col gap-2">
               <button onClick={goToPayment}
-                className="w-full py-4 rounded-2xl bg-green-600 text-white font-bold text-[15px]
-                  hover:bg-green-700 active:scale-[0.98] transition shadow-lg shadow-green-500/30
+                className="w-full py-4 rounded-2xl bg-brand-600 text-white font-bold text-[15px]
+                  hover:bg-brand-700 active:scale-[0.98] transition shadow-lg shadow-brand-600/30
                   flex items-center justify-center gap-2">
                 <i className="fi fi-sr-credit-card text-base leading-none" />
-                Pagar
+                Ativar plano
               </button>
 
               <button onClick={() => setShowUpgradeGate(false)}
@@ -1014,7 +1341,7 @@ export default function Profile() {
       )}
 
       {/* ===================================================== */}
-      {/* ===== POP-UP 2: PLANO + PAGAMENTO M-PESA / E-MOLA ==== */}
+      {/* ===== POP-UP 2: PAGAMENTO =========================== */}
       {/* ===================================================== */}
       {showPayment && (
         <div className="fixed inset-0 z-[185] flex items-end sm:items-center justify-center">
@@ -1136,7 +1463,7 @@ export default function Profile() {
                       </div>
                       <input type="tel" inputMode="tel" autoComplete="tel"
                         placeholder="+258 84 000 0000" value={paymentPhone}
-                        onChange={(e) => setPaymentPhone(formatPhone(e.target.value))}
+                        onChange={(e) => setPaymentPhone(e.target.value)}
                         className="flex-1 bg-transparent outline-none text-[15px] font-semibold text-gray-900
                           placeholder:text-gray-400 placeholder:font-normal" />
                     </div>
@@ -1203,7 +1530,7 @@ export default function Profile() {
                 <p className="mt-2 text-[13.5px] text-gray-600 leading-relaxed max-w-[300px]">
                   Enviámos um pedido de pagamento de{' '}
                   <strong className="text-gray-900">{currentPlanObj.priceLabel}</strong> para{' '}
-                  <strong className="text-gray-900">{formatPhone(paymentPhone)}</strong> via{' '}
+                  <strong className="text-gray-900">{paymentPhone}</strong> via{' '}
                   <strong className="text-gray-900">
                     {PAYMENT_METHODS.find((m) => m.id === paymentMethod)?.name}
                   </strong>.
@@ -1328,7 +1655,7 @@ export default function Profile() {
 }
 
 /* ============================================================
-   Componente auxiliar: campo com label
+   Field
 ============================================================ */
 function Field({ label, children, className = '' }) {
   return (

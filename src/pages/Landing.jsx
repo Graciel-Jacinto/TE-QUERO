@@ -1,521 +1,875 @@
-import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 
-const navLinks = [
-  { label: 'Como funciona', href: '#como-funciona' },
-  { label: 'Segurança',     href: '#seguranca' },
-  { label: 'Preços',        href: '#precos' },
-  { label: 'Ajuda',         href: '#ajuda' },
+/* ============================================================
+   Ícone WhatsApp
+============================================================ */
+function WhatsAppIcon({ className = '' }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+    </svg>
+  );
+}
+
+/* ---------- Tabs (desktop sidebar) ---------- */
+const allTabs = [
+  { id: 'discover', label: 'Para ti',      icon: 'fi-rr-heart',       fill: 'fi-sr-heart',       needsAuth: false },
+  { id: 'explore',  label: 'Explorar',     icon: 'fi-rr-search',      fill: 'fi-sr-search',      needsAuth: true  },
+  { id: 'notifs',   label: 'Notificações', icon: 'fi-rr-bell',        fill: 'fi-sr-bell',        needsAuth: true  },
+  { id: 'plans',    label: 'Planos',       icon: 'fi-rr-credit-card', fill: 'fi-sr-credit-card', needsAuth: false },
+  { id: 'profile',  label: 'Perfil',       icon: 'fi-rr-user',        fill: 'fi-sr-user',        needsAuth: true  },
 ];
 
-const languages = [
-  { code: 'PT', label: 'Português', flag: '🇲🇿', short: 'Português (MZ)' },
-  { code: 'EN', label: 'English',   flag: '🇬🇧', short: 'English' },
-  { code: 'FR', label: 'Français',  flag: '🇫🇷', short: 'Français' },
-  { code: 'ES', label: 'Español',   flag: '🇪🇸', short: 'Español' },
+const mobileNav = [
+  { id: 'discover', label: 'Para ti',  icon: 'fi-rr-heart',       fill: 'fi-sr-heart',       needsAuth: false },
+  { id: 'explore',  label: 'Explorar', icon: 'fi-rr-search',      fill: 'fi-sr-search',      needsAuth: true  },
+  { id: 'plans',    label: 'Planos',   icon: 'fi-rr-credit-card', fill: 'fi-sr-credit-card', needsAuth: false },
 ];
 
+const mobileDrawerItems = [
+  { id: 'notifs',  label: 'Notificações', icon: 'fi-rr-bell', desc: 'Vê quem se interessou por ti', needsAuth: true },
+  { id: 'profile', label: 'Perfil',       icon: 'fi-rr-user', desc: 'Acede ao teu perfil',          needsAuth: true },
+];
+
+/* ---------- Planos ---------- */
+const PAYMENT_PLANS = [
+  {
+    id: 'p1',
+    name: 'Começar',
+    tagline: 'Para quem quer experimentar',
+    price: 99,
+    features: [
+      '3 contactos no WhatsApp',
+      'Selo verificado incluído',
+      'Cancelas quando quiseres',
+    ],
+    popular: false,
+  },
+  {
+    id: 'p2',
+    name: 'Recomendado',
+    tagline: 'A escolha de 8 em cada 10',
+    price: 299,
+    features: [
+      '10 contactos no WhatsApp',
+      'Selo verificado incluído',
+      'Destaque no feed',
+      'Cancelas quando quiseres',
+    ],
+    popular: true,
+  },
+  {
+    id: 'p3',
+    name: 'Sem limites',
+    tagline: 'Para quem leva a sério',
+    price: 299,
+    features: [
+      'Contactos ilimitados',
+      'Selo verificado incluído',
+      'Destaque no feed',
+      'Suporte prioritário',
+    ],
+    popular: false,
+  },
+];
+
+/* ============================================================
+   Helpers
+============================================================ */
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function calcAge(dob) {
+  if (!dob) return null;
+  const b = new Date(dob);
+  const d = new Date();
+  let a = d.getFullYear() - b.getFullYear();
+  const m = d.getMonth() - b.getMonth();
+  if (m === 0 && d.getDate() < b.getDate()) a--;
+  else if (m < 0) a--;
+  return a;
+}
+
+/* ============================================================
+   Landing
+============================================================ */
 export default function Landing() {
-  const { user, profile, loading } = useAuth();
   const navigate = useNavigate();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
+  const { user, profile, loading: authLoading } = useAuth();
 
-  const [langOpen, setLangOpen] = useState(false);
-  const [lang, setLang] = useState(languages[0]);
-  const langRef = useRef(null);
+  const [view, setView] = useState('discover'); // 'discover' | 'plans'
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('tq-sidebar-collapsed') === 'true';
+  });
+
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+
+  const [guestProfiles, setGuestProfiles] = useState([]);
+  const [guestLoading, setGuestLoading] = useState(true);
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const feedRef = useRef(null);
 
   useEffect(() => {
-    const onClick = (e) => {
-      if (langRef.current && !langRef.current.contains(e.target)) {
-        setLangOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onClick);
-    return () => document.removeEventListener('mousedown', onClick);
-  }, []);
+    localStorage.setItem('tq-sidebar-collapsed', String(collapsed));
+  }, [collapsed]);
 
   useEffect(() => {
-    document.body.style.overflow = menuOpen ? 'hidden' : '';
+    document.body.style.overflow = drawerOpen ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
-  }, [menuOpen]);
+  }, [drawerOpen]);
 
   useEffect(() => {
-    if (loading) return;
+    if (authLoading) return;
     if (!user) return;
     if (!profile?.rules_accepted_at) return navigate('/onboarding/bem-vindo');
     if (!profile?.onboarding_completed) return navigate('/onboarding/perfil');
     navigate('/app/descobrir');
-  }, [user, profile, loading, navigate]);
+  }, [user, profile, authLoading, navigate]);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8);
-    window.addEventListener('scroll', onScroll);
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
+    if (user) return;
+    (async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, name, slug, birth_date, city, bio, avatar_url, interests, is_verified')
+        .eq('onboarding_completed', true)
+        .eq('is_banned', false)
+        .limit(30);
 
-  if (loading) {
+      const source = data || [];
+      setGuestProfiles([...shuffle(source), ...shuffle(source)]);
+      setGuestLoading(false);
+    })();
+  }, [user]);
+
+  const handleScroll = (e) => {
+    const el = e.currentTarget;
+    const h = el.clientHeight;
+    if (h === 0) return;
+    const idx = Math.round(el.scrollTop / h);
+    if (idx !== currentIdx) setCurrentIdx(idx);
+  };
+
+  const scrollByCards = (dir) => {
+    const el = feedRef.current;
+    if (!el) return;
+    const h = el.clientHeight;
+    el.scrollTo({ top: (currentIdx + dir) * h, behavior: 'smooth' });
+  };
+
+  /* ---------- Abrir modal de login ---------- */
+  const requireLogin = () => {
+    if (navigator.vibrate) navigator.vibrate(6);
+    setShowLoginModal(true);
+  };
+
+  /* ---------- Navegar entre tabs ---------- */
+  const handleTabClick = (tab) => {
+    // Tabs que exigem autenticação → abre modal
+    if (tab.needsAuth) {
+      requireLogin();
+      return;
+    }
+
+    // Tabs livres → navegação interna
+    if (tab.id === 'discover') {
+      setView('discover');
+      setDrawerOpen(false);
+      return;
+    }
+    if (tab.id === 'plans') {
+      setView('plans');
+      setDrawerOpen(false);
+      return;
+    }
+  };
+
+  if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
+      <div className="h-screen flex items-center justify-center bg-white">
         <div className="h-8 w-8 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
-      {/* ======================= HEADER ======================= */}
-      <header
-        className={`sticky top-0 z-[100] transition-all duration-300 ${
-          scrolled
-            ? 'bg-white/80 backdrop-blur-xl border-b border-gray-200/70 shadow-[0_2px_20px_-8px_rgba(225,29,87,0.15)]'
-            : 'bg-white border-b border-gray-100'
-        }`}
-      >
-        <div className="max-w-[1300px] mx-auto flex items-center justify-between gap-2
-          px-3 sm:px-6 h-[60px] sm:h-[68px] lg:h-[72px]">
+    <div className="h-screen flex flex-col bg-white overflow-hidden">
 
-          {/* ---------- LOGO ---------- */}
-          <Link to="/" className="flex items-center gap-2 shrink-0 group">
-            <div className="relative">
-              <div className="absolute inset-0 bg-brand-500 rounded-xl blur-md opacity-0 group-hover:opacity-60 transition-opacity" />
-              <div className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-sm shadow-brand-600/30 group-hover:scale-105 transition-transform">
-                <i className="fi fi-sr-heart text-white text-base sm:text-lg leading-none" />
-              </div>
+      {/* ============ HEADER MOBILE ============ */}
+      <header className="md:hidden shrink-0 bg-white border-b border-gray-100 z-[60]">
+        <div className="h-[56px] px-3 flex items-center justify-between gap-2">
+          <button onClick={() => setView('discover')} className="flex items-center gap-2 shrink-0">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-brand-700
+              flex items-center justify-center shadow-sm shadow-brand-600/30">
+              <i className="fi fi-sr-heart text-white text-base leading-none" />
             </div>
-            <div className="flex flex-col leading-none">
-              <span className="font-display font-extrabold text-[16px] sm:text-[18px] lg:text-[20px] tracking-tight text-gray-900">
-                Te Quero<span className="text-brand-600">.</span>
-              </span>
-              <span className="hidden lg:block text-[10px] font-medium text-gray-400 tracking-[0.15em] uppercase mt-0.5">
-                Encontros
-              </span>
-            </div>
-          </Link>
+            <span className="font-display font-extrabold text-[16px] tracking-tight text-gray-900">
+              Te Quero<span className="text-brand-600">.</span>
+            </span>
+          </button>
 
-          {/* ---------- NAV CENTRAL (desktop) ---------- */}
-          <nav className="hidden lg:flex items-center gap-0.5 bg-gray-50/80 border border-gray-100 rounded-full px-1.5 py-1.5">
-            {navLinks.map((l) => (
-              <a
-                key={l.label}
-                href={l.href}
-                className="relative px-4 py-1.5 rounded-full text-[13.5px] font-medium text-gray-600
-                  hover:text-brand-700 hover:bg-white hover:shadow-sm transition-all duration-200"
-              >
-                {l.label}
-              </a>
-            ))}
-          </nav>
-
-          {/* ---------- AÇÕES ---------- */}
-          <div className="flex items-center gap-1 sm:gap-1.5">
-
-            {/* Language (desktop only) */}
-            <div className="hidden md:block relative" ref={langRef}>
-              <button
-                onClick={() => setLangOpen((v) => !v)}
-                className="flex items-center gap-2 pl-2.5 pr-2 py-1.5 rounded-lg
-                  text-[13px] font-medium text-gray-700
-                  hover:bg-gray-100 transition"
-                aria-label="Idioma"
-              >
-                <span className="text-base leading-none">{lang.flag}</span>
-                <span className="hidden lg:inline">{lang.code}</span>
-                <i className={`fi fi-rr-angle-small-down text-sm leading-none opacity-60
-                  transition-transform ${langOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              {langOpen && (
-                <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-2xl
-                  shadow-xl border border-gray-100 p-1.5 z-[110]
-                  animate-[fadeIn_150ms_ease-out]">
-                  <p className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                    Idioma / Language
-                  </p>
-                  {languages.map((l) => (
-                    <button
-                      key={l.code}
-                      onClick={() => { setLang(l); setLangOpen(false); }}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left
-                        transition ${lang.code === l.code
-                          ? 'bg-brand-50 text-brand-700'
-                          : 'hover:bg-gray-50 text-gray-700'}`}
-                    >
-                      <span className="text-lg leading-none">{l.flag}</span>
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold leading-tight">{l.label}</p>
-                        <p className="text-[11px] text-gray-500 mt-0.5">{l.code}</p>
-                      </div>
-                      {lang.code === l.code && (
-                        <i className="fi fi-sr-check text-brand-600 text-base leading-none" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="hidden md:block w-px h-6 bg-gray-200 mx-1" />
-
-            {/* Entrar — SEMPRE visível (todas as larguras) */}
-            <Link
-              to="/login"
-              className="inline-flex items-center px-2.5 sm:px-3 lg:px-4 py-2 rounded-lg
-                text-[13px] sm:text-[13.5px] font-semibold text-gray-700
-                hover:text-brand-700 hover:bg-brand-50 transition whitespace-nowrap"
-            >
-              Entrar
-            </Link>
-
-            {/* Criar conta — esconde o texto em ecrãs muito pequenos */}
-            <Link
-              to="/registar"
-              className="group relative inline-flex items-center gap-1
-                px-3 sm:px-4 py-2 rounded-lg
-                bg-gray-900 text-white text-[13px] sm:text-[13.5px] font-semibold
-                hover:bg-brand-600 transition-all duration-200
-                shadow-sm hover:shadow-md hover:shadow-brand-600/25 whitespace-nowrap"
-            >
-              <span className="hidden xs:inline">Criar conta</span>
-              <span className="xs:hidden">Criar</span>
-              <i className="fi fi-rr-arrow-small-right text-base leading-none
-                transition-transform group-hover:translate-x-0.5" />
-            </Link>
-
-            {/* Hamburger (mobile/tablet) */}
+          <div className="flex items-center gap-1">
             <button
-              onClick={() => setMenuOpen((v) => !v)}
-              className="lg:hidden w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center
-                text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition shrink-0"
-              aria-label="Abrir menu"
-            >
-              <i className={`fi ${menuOpen ? 'fi-rr-cross-small' : 'fi-rr-menu-burger'} text-xl leading-none`} />
+              onClick={() => navigate('/login')}
+              className="px-3 py-2 rounded-lg text-[13px] font-semibold text-gray-700
+                hover:bg-brand-50 hover:text-brand-700 transition">
+              Entrar
+            </button>
+            <button
+              onClick={() => navigate('/registar')}
+              className="px-3.5 py-2 rounded-lg bg-brand-600 text-white text-[13px] font-semibold
+                hover:bg-brand-700 transition shadow-sm shadow-brand-600/25">
+              Criar
             </button>
           </div>
         </div>
-
-        {/* ============ MENU MOBILE ============ */}
-        <div
-          className={`lg:hidden fixed inset-x-0 top-[60px] sm:top-[68px] bottom-0 bg-white z-[99]
-            transition-all duration-300 ease-out overflow-y-auto
-            ${menuOpen ? 'opacity-100 pointer-events-auto translate-y-0' : 'opacity-0 pointer-events-none -translate-y-2'}`}
-        >
-          <nav className="px-4 py-4 flex flex-col gap-1">
-            {navLinks.map((l) => (
-              <a
-                key={l.label}
-                href={l.href}
-                onClick={() => setMenuOpen(false)}
-                className="flex items-center justify-between py-3.5 px-4 rounded-2xl
-                  text-[15px] font-medium text-gray-800
-                  hover:text-brand-700 hover:bg-brand-50 active:bg-brand-100 transition"
-              >
-                {l.label}
-                <i className="fi fi-rr-angle-small-right text-base leading-none opacity-40" />
-              </a>
-            ))}
-
-            <div className="h-px bg-gray-100 my-3" />
-
-            <p className="px-4 text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">
-              Idioma
-            </p>
-            {languages.map((l) => (
-              <button
-                key={l.code}
-                onClick={() => { setLang(l); setMenuOpen(false); }}
-                className={`flex items-center gap-3 py-3 px-4 rounded-2xl text-left
-                  transition ${lang.code === l.code
-                    ? 'bg-brand-50 text-brand-700'
-                    : 'text-gray-700 hover:bg-gray-50'}`}
-              >
-                <span className="text-lg leading-none">{l.flag}</span>
-                <span className="text-sm font-medium flex-1">{l.short}</span>
-                {lang.code === l.code && (
-                  <i className="fi fi-sr-check text-brand-600 text-base leading-none" />
-                )}
-              </button>
-            ))}
-
-            <div className="h-px bg-gray-100 my-3" />
-
-            <Link
-              to="/login"
-              onClick={() => setMenuOpen(false)}
-              className="flex items-center justify-center gap-2 py-3.5 px-4 rounded-2xl
-                text-[15px] font-semibold text-brand-700 bg-brand-50
-                active:bg-brand-100 transition"
-            >
-              <i className="fi fi-rr-sign-in-alt text-base leading-none" />
-              Entrar na minha conta
-            </Link>
-
-            <Link
-              to="/registar"
-              onClick={() => setMenuOpen(false)}
-              className="flex items-center justify-center gap-2 py-3.5 px-4 rounded-2xl
-                text-[15px] font-semibold text-white bg-brand-600
-                active:bg-brand-700 transition mt-1"
-            >
-              Criar conta grátis
-              <i className="fi fi-rr-arrow-small-right text-base leading-none" />
-            </Link>
-          </nav>
-        </div>
       </header>
 
-      {/* ======================= HERO ======================= */}
-      <main className="flex-1 max-w-[1300px] w-full mx-auto px-4 sm:px-6
-        flex items-center py-12 md:py-16 lg:py-20">
-        <section className="grid md:grid-cols-2 gap-12 md:gap-16 lg:gap-24 items-center w-full">
+      {/* ============ LAYOUT ============ */}
+      <div className="flex-1 min-h-0 flex relative">
 
-          <div className="order-2 md:order-1 text-center md:text-left
-            md:-translate-y-4 lg:-translate-y-8">
-
-            <div className="inline-flex items-center gap-2 bg-white text-brand-700
-              text-[11px] sm:text-xs font-semibold px-3.5 py-2 rounded-full
-              border border-brand-200 shadow-sm shadow-brand-600/5">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-brand-600" />
-              </span>
-              +2 400 pessoas activas hoje
-            </div>
-
-            <h1 className="mt-5 font-display text-[36px] sm:text-5xl md:text-5xl lg:text-[60px]
-              font-extrabold tracking-[-0.035em] text-gray-900 leading-[1.05]">
-              Alguém está{' '}
-              <span className="relative inline-block">
-                à espera
-                <svg
-                  className="absolute -bottom-2 left-0 w-full h-3 text-brand-300"
-                  viewBox="0 0 300 12"
-                  fill="none"
-                  preserveAspectRatio="none"
-                >
-                  <path
-                    d="M2 9C60 3 120 3 180 6C220 8 260 9 298 4"
-                    stroke="currentColor"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </span>
-              <br />
-              de te conhecer.{' '}
-              <span className="text-brand-600">Fala directo no WhatsApp.</span>
-            </h1>
-
-            <p className="mt-6 text-[15px] sm:text-base lg:text-[17px] text-gray-600
-              max-w-lg mx-auto md:mx-0 leading-relaxed">
-              Cria o teu perfil em menos de um minuto, descobre pessoas
-              reais perto de ti e inicia uma conversa com um clique.
-            </p>
-
-            <div className="mt-6 flex items-center justify-center md:justify-start gap-3">
-              <div className="flex -space-x-3">
-                {[
-                  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=80&q=80&auto=format&fit=crop',
-                  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=80&q=80&auto=format&fit=crop',
-                  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&q=80&auto=format&fit=crop',
-                  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=80&q=80&auto=format&fit=crop',
-                ].map((src, i) => (
-                  <img
-                    key={i}
-                    src={src}
-                    alt=""
-                    className="w-8 h-8 rounded-full border-2 border-white object-cover"
-                  />
-                ))}
+        {/* ---------- SIDEBAR ---------- */}
+        <aside
+          className={`hidden md:flex md:flex-col shrink-0
+            bg-white border-r border-gray-100 z-40
+            transition-all duration-300 ease-in-out
+            ${collapsed ? 'w-[92px]' : 'w-[240px] lg:w-[260px]'}`}
+        >
+          <div className={`h-[84px] flex items-center border-b border-gray-100
+            ${collapsed ? 'justify-center px-2' : 'px-6'}`}>
+            <button onClick={() => setView('discover')}
+              className="flex items-center gap-3 min-w-0 group">
+              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700
+                flex items-center justify-center shadow-sm shadow-brand-600/30 shrink-0
+                group-hover:scale-105 transition-transform">
+                <i className="fi fi-sr-heart text-white text-lg leading-none" />
               </div>
-              <div className="text-left">
-                <div className="flex items-center gap-1 text-brand-600">
-                  {[...Array(5)].map((_, i) => (
-                    <i key={i} className="fi fi-sr-star text-xs leading-none" />
-                  ))}
-                </div>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  <strong className="text-gray-800">4.9</strong> · 870 avaliações
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-7 flex flex-col sm:flex-row gap-3
-              justify-center md:justify-start">
-              <Link
-                to="/registar"
-                className="inline-flex items-center justify-center gap-2
-                  px-6 py-3.5 rounded-xl bg-brand-600 text-white font-semibold
-                  hover:bg-brand-700 active:scale-[0.98] transition
-                  shadow-lg shadow-brand-600/25"
-              >
-                Começar agora
-                <i className="fi fi-rr-arrow-small-right text-lg leading-none" />
-              </Link>
-              <Link
-                to="/login"
-                className="inline-flex items-center justify-center gap-2
-                  px-6 py-3.5 rounded-xl border-2 border-gray-200 bg-white
-                  text-gray-800 font-semibold hover:border-brand-300 hover:text-brand-700
-                  active:bg-gray-50 transition"
-              >
-                <i className="fi fi-rr-play-circle text-lg leading-none" />
-                Ver como funciona
-              </Link>
-            </div>
-          </div>
-
-          <div className="order-1 md:order-2 relative flex justify-center
-            md:translate-y-4 lg:translate-y-8">
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-[260px] sm:w-[300px] md:w-[360px]
-                h-[340px] sm:h-[380px] md:h-[440px]
-                bg-gradient-to-br from-brand-200/70 via-brand-300/40 to-brand-100/20
-                blur-3xl rounded-full" />
-            </div>
-
-            <div className="relative w-full max-w-[300px] sm:max-w-[320px] md:max-w-[360px]
-              bg-white rounded-3xl
-              shadow-[0_25px_60px_-15px_rgba(225,29,87,0.4)]
-              border border-gray-100 overflow-hidden">
-
-              <div className="relative h-[280px] sm:h-[300px] md:h-[330px] overflow-hidden">
-                <img
-                  src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=800&q=80&auto=format&fit=crop"
-                  alt="Perfil"
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
-
-                <button className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/95 backdrop-blur flex items-center justify-center shadow-lg hover:scale-110 active:scale-95 transition">
-                  <i className="fi fi-sr-heart text-brand-600 text-lg leading-none" />
-                </button>
-
-                <div className="absolute top-4 left-4">
-                  <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase
-                    tracking-wider bg-brand-600 text-white px-2.5 py-1 rounded-full">
-                    <i className="fi fi-sr-bolt leading-none" />
-                    Novo
+              {!collapsed && (
+                <div className="flex flex-col leading-none min-w-0 text-left">
+                  <span className="font-display font-extrabold text-[20px] tracking-tight text-gray-900 truncate">
+                    Te Quero<span className="text-brand-600">.</span>
+                  </span>
+                  <span className="text-[10px] font-medium text-gray-400 tracking-[0.15em] uppercase mt-1">
+                    Encontros
                   </span>
                 </div>
+              )}
+            </button>
+          </div>
 
-                <div className="absolute bottom-0 inset-x-0 p-5 text-white">
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-green-500 text-white px-2 py-1 rounded-full">
-                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                      Online agora
-                    </span>
-                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-white/25 backdrop-blur text-white px-2 py-1 rounded-full">
-                      <i className="fi fi-sr-shield-check leading-none" />
-                      Verificada
-                    </span>
+          <nav className={`flex-1 py-4 space-y-1 overflow-y-auto sidebar-nav
+            ${collapsed ? 'px-2.5' : 'px-3'}`}>
+            <style>{`
+              .sidebar-nav::-webkit-scrollbar { width: 0; }
+              .sidebar-nav { scrollbar-width: none; }
+            `}</style>
+
+            {allTabs.map((t) => {
+              const isActive =
+                (t.id === 'discover' && view === 'discover') ||
+                (t.id === 'plans' && view === 'plans');
+
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => handleTabClick(t)}
+                  title={collapsed ? t.label : undefined}
+                  className={`group relative w-full flex items-center rounded-xl text-[15px] font-semibold
+                    transition-all duration-200
+                    ${isActive ? 'bg-brand-50 text-brand-700' : 'text-gray-700 hover:bg-gray-100'}
+                    ${collapsed ? 'justify-center px-2 py-3.5' : 'gap-4 px-3.5 py-3.5'}`}
+                >
+                  <div className="relative shrink-0">
+                    <i className={`fi ${isActive ? t.fill : t.icon} ${collapsed ? 'text-[22px]' : 'text-[21px]'} leading-none`} />
                   </div>
-                  <h3 className="font-display text-xl sm:text-2xl font-extrabold leading-tight">
-                    Ana, 24
-                  </h3>
-                  <p className="text-xs text-white/90 flex items-center gap-1 mt-1">
-                    <i className="fi fi-sr-marker leading-none" />
-                    Maputo, Moçambique
-                  </p>
-                </div>
-              </div>
 
-              <div className="p-5">
-                <p className="text-[13.5px] text-gray-700 leading-relaxed">
-                  Gosto de música, viagens e conhecer pessoas novas.
-                </p>
+                  {!collapsed && <span className="truncate flex-1 text-left">{t.label}</span>}
 
-                <div className="mt-3.5 flex flex-wrap gap-1.5">
-                  {['Música', 'Viagens', 'Café'].map((t) => (
-                    <span
-                      key={t}
-                      className="text-[11px] font-medium text-gray-600 bg-gray-100 px-2.5 py-1 rounded-full"
-                    >
-                      {t}
+                  {collapsed && (
+                    <span className="absolute left-full ml-3 px-3 py-2 rounded-lg
+                      bg-gray-900 text-white text-[13px] font-medium
+                      whitespace-nowrap opacity-0 pointer-events-none
+                      group-hover:opacity-100 transition-opacity duration-150
+                      shadow-xl z-[100]">
+                      {t.label}
                     </span>
-                  ))}
-                </div>
-
-                <button className="mt-5 w-full py-3 rounded-xl bg-[#25D366] text-white font-bold text-sm flex items-center justify-center gap-2 hover:bg-[#1eb356] active:scale-[0.98] transition shadow-lg shadow-green-500/25">
-                  <i className="fi fi-brands-whatsapp text-lg leading-none" />
-                  Contactar no WhatsApp
+                  )}
                 </button>
-              </div>
-            </div>
+              );
+            })}
+          </nav>
 
-            <div className="hidden lg:flex absolute -top-3 -right-2 items-center gap-2
-              bg-white rounded-2xl shadow-xl border border-gray-100 pl-3 pr-4 py-2.5
-              animate-[float_3s_ease-in-out_infinite]">
-              <div className="w-9 h-9 rounded-full bg-green-100 flex items-center justify-center">
-                <i className="fi fi-brands-whatsapp text-green-600 text-lg leading-none" />
-              </div>
-              <div>
-                <p className="text-[11px] font-bold text-gray-900 leading-tight">
-                  Conversa iniciada
-                </p>
-                <p className="text-[10px] text-gray-500 mt-0.5">
-                  há 2 minutos
-                </p>
-              </div>
-            </div>
-
-            <div className="hidden lg:flex absolute -bottom-4 -left-4 items-center gap-2
-              bg-white rounded-2xl shadow-xl border border-gray-100 pl-3 pr-4 py-2.5
-              animate-[float_3.5s_ease-in-out_infinite_0.5s]">
-              <div className="w-9 h-9 rounded-full bg-brand-100 flex items-center justify-center">
-                <i className="fi fi-sr-heart text-brand-600 text-base leading-none" />
-              </div>
-              <div>
-                <p className="text-[11px] font-bold text-gray-900 leading-tight">
-                  3 contactos grátis
-                </p>
-                <p className="text-[10px] text-gray-500 mt-0.5">
-                  ao criar conta
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-      </main>
-
-      {/* ======================= FOOTER ======================= */}
-      <footer className="border-t border-gray-100 mt-auto bg-white">
-        <div className="max-w-[1300px] mx-auto px-4 sm:px-6 py-6
-          flex flex-col sm:flex-row items-center justify-between gap-3">
-
-          <div className="flex items-center gap-2">
-            <span className="font-display font-extrabold text-base tracking-tight text-gray-900">
-              Te Quero<span className="text-brand-600">.</span>
-            </span>
-            <span className="text-gray-300">·</span>
-            <span className="text-xs text-gray-500">2026</span>
-          </div>
-
-          <p className="text-xs text-gray-500 text-center sm:text-right">
-            Desenvolvido pela{' '}
-            <a
-              href="https://codetudo.co.mz"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-semibold text-gray-800 hover:text-brand-600 transition"
+          <div className={`border-t border-gray-100 ${collapsed ? 'p-3' : 'p-3'}`}>
+            <button
+              onClick={() => setCollapsed(!collapsed)}
+              className={`w-full flex items-center rounded-xl font-semibold
+                text-gray-500 hover:text-gray-900 hover:bg-gray-100
+                active:bg-gray-200 transition-all duration-200
+                ${collapsed ? 'justify-center p-3' : 'gap-4 px-3.5 py-3'}`}
             >
-              codetudo.co.mz
-            </a>
+              <i className={`fi ${collapsed ? 'fi-rr-angle-small-right' : 'fi-rr-angle-small-left'}
+                text-[20px] leading-none shrink-0`} />
+              {!collapsed && <span className="text-[14.5px]">Colapsar menu</span>}
+            </button>
+          </div>
+
+          <div className={`border-t border-gray-100 ${collapsed ? 'p-2.5 space-y-2' : 'p-4 space-y-2.5'}`}>
+            <button
+              onClick={() => navigate('/login')}
+              className={`w-full flex items-center justify-center gap-2 rounded-xl font-bold
+                bg-brand-600 text-white
+                hover:bg-brand-700 active:scale-[0.98]
+                transition-all duration-200 shadow-lg shadow-brand-600/25
+                ${collapsed ? 'p-3' : 'px-4 py-3.5 text-[14.5px]'}`}
+              title={collapsed ? 'Iniciar sessão' : undefined}
+            >
+              <i className="fi fi-rr-sign-in-alt text-[18px] leading-none shrink-0" />
+              {!collapsed && <span>Iniciar sessão</span>}
+            </button>
+
+            {!collapsed && (
+              <p className="text-[11.5px] text-gray-400 text-center leading-snug px-1">
+                Cria conta grátis e recebe <span className="font-bold text-gray-600">3 contactos</span>
+              </p>
+            )}
+          </div>
+        </aside>
+
+        {/* ---------- CONTEÚDO ---------- */}
+        <main className="flex-1 min-h-0 relative overflow-hidden bg-white">
+          {view === 'discover' && (
+            <DiscoverView
+              profiles={guestProfiles}
+              loading={guestLoading}
+              currentIdx={currentIdx}
+              feedRef={feedRef}
+              onScroll={handleScroll}
+              onScrollBy={scrollByCards}
+              onAction={requireLogin}
+            />
+          )}
+
+          {view === 'plans' && (
+            <PlansView onSubscribe={requireLogin} />
+          )}
+        </main>
+      </div>
+
+      {/* ============ BOTTOM NAV (mobile) ============ */}
+      <nav className="md:hidden shrink-0 bg-white border-t border-gray-100 z-40">
+        <div className="grid grid-cols-3">
+          {mobileNav.map((t) => {
+            const isActive =
+              (t.id === 'discover' && view === 'discover') ||
+              (t.id === 'plans' && view === 'plans');
+
+            return (
+              <button
+                key={t.id}
+                onClick={() => handleTabClick(t)}
+                className={`relative flex flex-col items-center justify-center gap-0.5
+                  py-2.5 text-[10px] font-semibold transition-colors
+                  ${isActive ? 'text-brand-600' : 'text-gray-500'}`}
+              >
+                <i className={`fi ${isActive ? t.fill : t.icon} text-xl leading-none`} />
+                <span>{t.label}</span>
+                {isActive && (
+                  <span className="absolute top-0 left-1/2 -translate-x-1/2
+                    w-8 h-0.5 bg-brand-600 rounded-full" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      {/* ============ DRAWER MOBILE ============ */}
+      <div
+        onClick={() => setDrawerOpen(false)}
+        className={`md:hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-[100]
+          transition-opacity duration-300
+          ${drawerOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+      />
+
+      <div
+        className={`md:hidden fixed top-0 right-0 bottom-0 w-[85%] max-w-[360px]
+          bg-white z-[101] flex flex-col
+          transition-transform duration-300 ease-out
+          ${drawerOpen ? 'translate-x-0' : 'translate-x-full'}`}
+      >
+        <div className="shrink-0 flex items-center justify-between px-5 h-[64px]
+          border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-brand-700
+              flex items-center justify-center">
+              <i className="fi fi-sr-heart text-white text-sm leading-none" />
+            </div>
+            <span className="font-display font-extrabold text-[16px] text-gray-900">Menu</span>
+          </div>
+          <button
+            onClick={() => setDrawerOpen(false)}
+            className="w-10 h-10 rounded-full flex items-center justify-center
+              text-gray-600 hover:bg-gray-100 active:bg-gray-200 transition">
+            <i className="fi fi-rr-cross-small text-xl leading-none" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-3">
+          <p className="px-3 py-2 text-[10.5px] font-bold uppercase tracking-wider text-gray-400">
+            Mais opções
+          </p>
+
+          {mobileDrawerItems.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => { setDrawerOpen(false); requireLogin(); }}
+              className="w-full flex items-center gap-3.5 px-3 py-3.5 rounded-2xl transition
+                text-gray-700 hover:bg-gray-50 active:bg-gray-100">
+              <div className="relative w-11 h-11 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
+                <i className={`fi ${item.icon} text-[19px] leading-none`} />
+              </div>
+              <div className="min-w-0 flex-1 text-left">
+                <p className="font-semibold text-[14.5px] leading-tight">{item.label}</p>
+                <p className="text-[11.5px] text-gray-400 truncate mt-0.5">{item.desc}</p>
+              </div>
+              <i className="fi fi-rr-angle-small-right text-gray-300 text-base leading-none" />
+            </button>
+          ))}
+        </div>
+
+        <div className="shrink-0 p-4 border-t border-gray-100 space-y-2">
+          <button
+            onClick={() => { setDrawerOpen(false); navigate('/login'); }}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl
+              text-white bg-brand-600 font-bold text-[14.5px]
+              hover:bg-brand-700 active:scale-[0.98] transition
+              shadow-lg shadow-brand-600/25">
+            <i className="fi fi-rr-sign-in-alt text-[19px] leading-none" />
+            Iniciar sessão
+          </button>
+          <button
+            onClick={() => { setDrawerOpen(false); navigate('/registar'); }}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl
+              text-brand-700 bg-brand-50 font-semibold text-[14.5px]
+              hover:bg-brand-100 transition">
+            <i className="fi fi-sr-user-add text-[19px] leading-none" />
+            Criar conta grátis
+          </button>
+        </div>
+      </div>
+
+      {/* ============ MODAL SIMPLES DE LOGIN ============ */}
+      {showLoginModal && (
+        <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center">
+          <div onClick={() => setShowLoginModal(false)}
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+
+          <div className="relative w-full max-w-sm bg-white rounded-t-3xl sm:rounded-3xl
+            p-6 pb-7 sm:p-7 animate-[slideUpPrompt_280ms_cubic-bezier(0.22,1,0.36,1)]">
+
+            <style>{`
+              @keyframes slideUpPrompt {
+                from { transform: translateY(100%); }
+                to   { transform: translateY(0); }
+              }
+              @media (min-width: 640px) {
+                @keyframes slideUpPrompt {
+                  from { transform: translateY(20px) scale(0.98); opacity: 0; }
+                  to   { transform: translateY(0) scale(1); opacity: 1; }
+                }
+              }
+            `}</style>
+
+            <div className="sm:hidden w-12 h-1.5 rounded-full bg-gray-300 mx-auto mb-5" />
+
+            <div className="flex justify-center mb-4">
+              <div className="w-16 h-16 rounded-2xl bg-brand-50 flex items-center justify-center">
+                <i className="fi fi-sr-lock text-brand-600 text-2xl leading-none" />
+              </div>
+            </div>
+
+            <h3 className="font-display text-[19px] font-extrabold text-gray-900 text-center leading-tight">
+              Inicia sessão para continuar
+            </h3>
+
+            <p className="mt-2 text-[13.5px] text-gray-500 text-center leading-relaxed">
+              Cria conta grátis em segundos.
+            </p>
+
+            <div className="mt-6 flex flex-col gap-2">
+              <button
+                onClick={() => { setShowLoginModal(false); navigate('/login'); }}
+                className="w-full py-3.5 rounded-2xl bg-brand-600 text-white font-bold text-[14.5px]
+                  hover:bg-brand-700 active:scale-[0.98] transition shadow-lg shadow-brand-600/25">
+                Entrar
+              </button>
+              <button
+                onClick={() => { setShowLoginModal(false); navigate('/registar'); }}
+                className="w-full py-3.5 rounded-2xl bg-gray-100 text-gray-700 font-semibold text-[14px]
+                  hover:bg-gray-200 transition">
+                Criar conta
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   Discover View (guest)
+============================================================ */
+function DiscoverView({ profiles, loading, currentIdx, feedRef, onScroll, onScrollBy, onAction }) {
+  if (loading) {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center p-2">
+        <div className="w-full h-full max-w-[400px] rounded-3xl bg-gray-200 animate-pulse" />
+      </div>
+    );
+  }
+
+  if (profiles.length === 0) {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
+        <div className="max-w-sm">
+          <div className="w-16 h-16 rounded-2xl bg-brand-100 flex items-center justify-center mx-auto mb-4">
+            <i className="fi fi-rr-search-alt text-brand-600 text-2xl leading-none" />
+          </div>
+          <h2 className="font-display text-xl font-extrabold text-gray-900">
+            Ainda não há perfis
+          </h2>
+          <p className="mt-2 text-sm text-gray-500 leading-relaxed">
+            Volta mais tarde. Estamos a adicionar novas pessoas todos os dias.
           </p>
         </div>
-      </footer>
+      </div>
+    );
+  }
 
-      <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(-4px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes float {
-          0%, 100% { transform: translateY(0); }
-          50%      { transform: translateY(-6px); }
-        }
-      `}</style>
+  return (
+    <div className="absolute inset-0 flex flex-col">
+      <div className="hidden md:flex flex-col items-center gap-3
+        absolute right-6 top-1/2 -translate-y-1/2 z-30">
+        <button onClick={() => onScrollBy(-1)}
+          className="w-12 h-12 rounded-full bg-white shadow-xl border border-gray-100
+            flex items-center justify-center text-gray-700
+            hover:bg-gray-50 hover:scale-105 active:scale-95 transition-all"
+          aria-label="Perfil anterior">
+          <i className="fi fi-rr-angle-small-up text-2xl leading-none" />
+        </button>
+        <div className="flex flex-col items-center gap-1.5 py-2">
+          <span className="w-1.5 h-5 bg-brand-600 rounded-full" />
+          <span className="w-1.5 h-1.5 bg-gray-300 rounded-full" />
+          <span className="w-1.5 h-1.5 bg-gray-300 rounded-full" />
+          <span className="w-1.5 h-1.5 bg-gray-300 rounded-full" />
+          <span className="w-1.5 h-1.5 bg-gray-300 rounded-full" />
+        </div>
+        <button onClick={() => onScrollBy(1)}
+          className="w-12 h-12 rounded-full bg-white shadow-xl border border-gray-100
+            flex items-center justify-center text-gray-700
+            hover:bg-gray-50 hover:scale-105 active:scale-95 transition-all"
+          aria-label="Próximo perfil">
+          <i className="fi fi-rr-angle-small-down text-2xl leading-none" />
+        </button>
+      </div>
+
+      <div ref={feedRef} onScroll={onScroll}
+        className="flex-1 min-h-0 overflow-y-scroll snap-y snap-mandatory landing-feed">
+        <style>{`
+          .landing-feed {
+            scroll-behavior: smooth;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+          }
+          .landing-feed::-webkit-scrollbar { display: none; }
+        `}</style>
+
+        {profiles.map((p, i) => {
+          const a = calcAge(p.birth_date);
+          const isActive = i === currentIdx;
+          const targetVerified = p.is_verified === true;
+
+          return (
+            <div key={`${p.id}-${i}`}
+              className="snap-start snap-always w-full h-full flex items-center justify-center">
+              <div
+                onClick={onAction}
+                className={`relative w-full h-full
+                  md:max-w-[400px] md:h-[calc(100%-16px)]
+                  overflow-hidden bg-gray-900
+                  md:rounded-2xl md:shadow-[0_20px_50px_-15px_rgba(0,0,0,0.3)]
+                  cursor-pointer select-none active:scale-[0.995]
+                  transition-all duration-500
+                  ${isActive ? 'opacity-100 scale-100' : 'opacity-90 scale-[0.98]'}`}>
+
+                {p.avatar_url ? (
+                  <img src={p.avatar_url} alt={p.name}
+                    className="w-full h-full object-cover pointer-events-none"
+                    loading="lazy" draggable="false" />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-br from-brand-400 via-brand-600 to-brand-800
+                    flex items-center justify-center">
+                    <i className="fi fi-sr-user text-white text-[120px] leading-none opacity-40" />
+                  </div>
+                )}
+
+                <div className="absolute inset-x-0 top-0 h-24
+                  bg-gradient-to-b from-black/60 to-transparent pointer-events-none" />
+                <div className="absolute inset-x-0 bottom-0 h-2/3
+                  bg-gradient-to-t from-black/95 via-black/50 to-transparent pointer-events-none" />
+
+                <div className="absolute right-3 bottom-32 z-10 flex flex-col items-center gap-4">
+                  <div className="flex flex-col items-center gap-1">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onAction(); }}
+                      className="w-12 h-12 rounded-full backdrop-blur border
+                        bg-white/15 border-white/20 hover:bg-white/25
+                        flex items-center justify-center active:scale-90 transition-all duration-200"
+                      aria-label="Gostar">
+                      <i className="fi fi-rr-heart text-white text-xl leading-none" />
+                    </button>
+                    <span className="text-[11px] font-bold text-white/90 drop-shadow-md">
+                      Gostar
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col items-center gap-1">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onAction(); }}
+                      className="w-12 h-12 rounded-full backdrop-blur border
+                        bg-[#25D366] border-[#25D366]/50 shadow-lg shadow-green-500/40
+                        hover:bg-[#1eb356]
+                        flex items-center justify-center active:scale-90 transition-all duration-200"
+                      aria-label="Enviar mensagem">
+                      <WhatsAppIcon className="w-6 h-6 text-white" />
+                    </button>
+                    <span className="text-[11px] font-bold text-white/90 drop-shadow-md">
+                      Mensagem
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onAction(); }}
+                    className="w-12 h-12 rounded-full bg-white/15 backdrop-blur border border-white/20
+                      flex items-center justify-center hover:bg-white/25 active:scale-90 transition"
+                    aria-label="Mais opções">
+                    <i className="fi fi-sr-menu-dots-vertical text-white text-base leading-none" />
+                  </button>
+                </div>
+
+                <div className="absolute bottom-0 inset-x-0 p-5 text-white pr-20 pointer-events-none">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="font-display text-[26px] font-extrabold leading-tight">
+                      {p.name}{a ? `, ${a}` : ''}
+                    </h2>
+                    {targetVerified && (
+                      <i className="fi fi-sr-badge-check text-blue-400 text-[20px] leading-none
+                        drop-shadow-[0_2px_8px_rgba(59,130,246,0.6)]" title="Perfil verificado" />
+                    )}
+                  </div>
+
+                  {p.city && (
+                    <p className="mt-1.5 text-[13px] text-white/90 flex items-center gap-1.5">
+                      <i className="fi fi-sr-marker leading-none" />
+                      {p.city}
+                    </p>
+                  )}
+
+                  {p.bio && (
+                    <p className="mt-3 text-[13.5px] text-white/85 leading-relaxed line-clamp-3">
+                      {p.bio}
+                    </p>
+                  )}
+
+                  {Array.isArray(p.interests) && p.interests.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {p.interests.slice(0, 3).map((t) => (
+                        <span key={t}
+                          className="text-[11px] font-medium bg-white/15 backdrop-blur text-white
+                            px-2.5 py-1 rounded-full border border-white/15">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   Plans View (guest)
+============================================================ */
+function PlansView({ onSubscribe }) {
+  return (
+    <div className="absolute inset-0 overflow-y-auto bg-white">
+      <div className="max-w-[980px] mx-auto px-5 sm:px-8 py-10 sm:py-14">
+
+        <div className="mb-10 sm:mb-12 max-w-lg">
+          <div className="inline-flex items-center gap-2 mb-4">
+            <span className="w-2 h-2 rounded-full bg-brand-600 animate-pulse" />
+            <span className="text-[11.5px] font-bold uppercase tracking-[0.18em] text-brand-600">
+              Planos · Mensal
+            </span>
+          </div>
+          <h1 className="font-display text-[32px] sm:text-[42px] font-extrabold
+            tracking-[-0.03em] text-gray-900 leading-[1.05]">
+            Fala com quem quiseres.<br />
+            <span className="text-brand-600">Sem complicações.</span>
+          </h1>
+          <p className="mt-4 text-[15px] text-gray-500 leading-relaxed">
+            Todos os planos incluem o <strong className="text-gray-800">selo azul</strong> no teu perfil.
+            Cancelas quando quiseres, sem perguntas.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-3 items-stretch">
+          {PAYMENT_PLANS.map((plan) => {
+            const isPopular = plan.popular;
+
+            return (
+              <div
+                key={plan.id}
+                className={`relative rounded-3xl flex flex-col
+                  transition-all duration-300
+                  ${isPopular
+                    ? 'bg-gray-900 md:scale-[1.03] md:-my-2 shadow-2xl shadow-gray-900/20'
+                    : 'bg-white border border-gray-200 hover:border-gray-300 hover:shadow-lg'}`}
+              >
+                {isPopular && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-10">
+                    <div className="px-3.5 py-1.5 rounded-full bg-brand-600 text-white
+                      text-[10.5px] font-bold uppercase tracking-wider
+                      shadow-lg shadow-brand-600/40 flex items-center gap-1.5 whitespace-nowrap">
+                      <i className="fi fi-sr-star text-[10px] leading-none" />
+                      Mais escolhido
+                    </div>
+                  </div>
+                )}
+
+                <div className="p-6 sm:p-7 flex-1 flex flex-col">
+                  <div className="mb-5">
+                    <h3 className={`font-display text-[20px] font-extrabold leading-tight
+                      ${isPopular ? 'text-white' : 'text-gray-900'}`}>
+                      {plan.name}
+                    </h3>
+                    <p className={`text-[12.5px] mt-1 leading-snug
+                      ${isPopular ? 'text-white/60' : 'text-gray-500'}`}>
+                      {plan.tagline}
+                    </p>
+                  </div>
+
+                  <div className="mb-6">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className={`font-display text-[44px] font-extrabold leading-none tabular-nums
+                        ${isPopular ? 'text-white' : 'text-gray-900'}`}>
+                        {plan.price}
+                      </span>
+                      <span className={`text-[14px] font-bold
+                        ${isPopular ? 'text-white/70' : 'text-gray-500'}`}>
+                        MZN
+                      </span>
+                    </div>
+                    <p className={`text-[11.5px] mt-1.5
+                      ${isPopular ? 'text-white/50' : 'text-gray-400'}`}>
+                      por mês · sem fidelização
+                    </p>
+                  </div>
+
+                  <div className={`h-px mb-5
+                    ${isPopular ? 'bg-white/10' : 'bg-gray-100'}`} />
+
+                  <ul className="space-y-3 flex-1">
+                    {plan.features.map((f, idx) => (
+                      <li key={idx} className="flex items-start gap-2.5">
+                        <span className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5
+                          ${isPopular ? 'bg-brand-500/20' : 'bg-green-50'}`}>
+                          <i className={`fi fi-sr-check text-[10px] leading-none
+                            ${isPopular ? 'text-brand-400' : 'text-green-600'}`} />
+                        </span>
+                        <span className={`text-[13.5px] leading-snug
+                          ${isPopular ? 'text-white/85' : 'text-gray-700'}`}>
+                          {f}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <button
+                    onClick={onSubscribe}
+                    className={`mt-6 w-full py-3.5 rounded-2xl font-bold text-[14px]
+                      transition-all active:scale-[0.98]
+                      flex items-center justify-center gap-2
+                      ${isPopular
+                        ? 'bg-brand-600 text-white hover:bg-brand-500 shadow-lg shadow-brand-600/30'
+                        : 'bg-gray-900 text-white hover:bg-gray-800'}`}
+                  >
+                    Escolher este
+                    <i className="fi fi-rr-arrow-small-right text-base leading-none" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {[
+            {
+              icon: 'fi-sr-shield-check',
+              title: 'Pagamento seguro',
+              desc: 'M-Pesa e e-Mola',
+              color: 'bg-blue-50 text-blue-600',
+            },
+            {
+              icon: 'fi-sr-bolt',
+              title: 'Ativação imediata',
+              desc: 'Selo ativo em segundos',
+              color: 'bg-amber-50 text-amber-600',
+            },
+            {
+              icon: 'fi-sr-refresh',
+              title: 'Cancelas quando quiseres',
+              desc: 'Sem letras pequenas',
+              color: 'bg-green-50 text-green-600',
+            },
+          ].map((b, i) => (
+            <div key={i} className="flex items-center gap-3.5 p-4 rounded-2xl
+              bg-white border border-gray-100">
+              <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${b.color}`}>
+                <i className={`fi ${b.icon} text-lg leading-none`} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[13.5px] font-bold text-gray-900 leading-tight">
+                  {b.title}
+                </p>
+                <p className="text-[12px] text-gray-500 mt-0.5 leading-snug">
+                  {b.desc}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="h-10" />
+      </div>
     </div>
   );
 }

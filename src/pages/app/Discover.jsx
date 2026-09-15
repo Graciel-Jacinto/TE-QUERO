@@ -17,48 +17,14 @@ const SOFT_COLORS = ['#fb7191', '#fda4b4', '#fecdd6', '#f43f6f'];
 
 /* Planos disponíveis no pop-up de pagamento */
 const PAYMENT_PLANS = [
-  {
-    id: 'p1',
-    label: 'Plano 01',
-    contacts: '3 contactos',
-    price: 99,
-    priceLabel: '99 MZN',
-    tag: null,
-  },
-  {
-    id: 'p2',
-    label: 'Plano 02',
-    contacts: '10 contactos',
-    price: 299,
-    priceLabel: '299 MZN',
-    tag: 'Popular',
-  },
-  {
-    id: 'p3',
-    label: 'Plano 03',
-    contacts: 'Ilimitado',
-    price: 299,
-    priceLabel: '299 MZN',
-    tag: null,
-  },
+  { id: 'p1', label: 'Plano 01', contacts: '3 contactos',  price: 99,  priceLabel: '99 MZN',  tag: null },
+  { id: 'p2', label: 'Plano 02', contacts: '10 contactos', price: 299, priceLabel: '299 MZN', tag: 'Popular' },
+  { id: 'p3', label: 'Plano 03', contacts: 'Ilimitado',    price: 299, priceLabel: '299 MZN', tag: null },
 ];
 
-/* Métodos de pagamento disponíveis (Moçambique) */
 const PAYMENT_METHODS = [
-  {
-    id: 'mpesa',
-    name: 'M-Pesa',
-    subtitle: 'Vodacom',
-    color: '#E60000',
-    bg: '#FEE2E2',
-  },
-  {
-    id: 'emola',
-    name: 'e-Mola',
-    subtitle: 'Movitel',
-    color: '#EA580C',
-    bg: '#FFEDD5',
-  },
+  { id: 'mpesa', name: 'M-Pesa', subtitle: 'Vodacom', color: '#E60000', bg: '#FEE2E2' },
+  { id: 'emola', name: 'e-Mola', subtitle: 'Movitel', color: '#EA580C', bg: '#FFEDD5' },
 ];
 
 function WhatsAppIcon({ className = '' }) {
@@ -122,7 +88,19 @@ function shuffle(arr) {
 }
 
 function formatPhone(raw) {
-  return raw.replace(/[^\d+]/g, '').slice(0, 15);
+  return String(raw || '').replace(/[^\d+]/g, '').slice(0, 15);
+}
+
+/* Constrói link do WhatsApp a partir do número guardado em profiles.whatsapp */
+function buildWaLink(whatsappNumber, targetName, myName) {
+  const digits = String(whatsappNumber || '').replace(/\D/g, '');
+  if (!digits) return null;
+
+  const firstName = targetName?.split(' ')[0] || '';
+  const myFirstName = myName?.split(' ')[0] || '';
+  const message = `Olá ${firstName}! Vi o teu perfil no Te Quero${myFirstName ? `. Sou o ${myFirstName}` : ''}. Podemos falar?`;
+
+  return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
 }
 
 export default function Discover() {
@@ -153,7 +131,6 @@ export default function Discover() {
   const [paymentMethod, setPaymentMethod] = useState('mpesa');
   const [paymentPhone, setPaymentPhone] = useState('');
 
-  /* paymentStatus: 'form' | 'processing' | 'waiting' | 'success' | 'error' */
   const [paymentStatus, setPaymentStatus] = useState('form');
   const [paymentError, setPaymentError] = useState('');
   const pollRef = useRef(null);
@@ -163,17 +140,16 @@ export default function Discover() {
   const appendingRef = useRef(false);
 
   const iHaveSelo = myProfile?.is_verified === true;
-
   const currentPlanObj = PAYMENT_PLANS.find((p) => p.id === selectedPlan) || PAYMENT_PLANS[1];
 
-  /* ---------- Carregar dados ---------- */
+  /* ---------- Carregar dados (com whatsapp) ---------- */
   useEffect(() => {
     if (!user) return;
     (async () => {
       const [profRes, balRes, likesRes] = await Promise.all([
         supabase
           .from('profiles')
-          .select('id, name, slug, birth_date, city, bio, avatar_url, gender, interests, is_verified')
+          .select('id, name, slug, birth_date, city, bio, avatar_url, gender, interests, is_verified, whatsapp')
           .eq('onboarding_completed', true)
           .eq('is_banned', false)
           .neq('id', user.id)
@@ -246,7 +222,6 @@ export default function Discover() {
     };
   }, []);
 
-  /* ---------- Scroll ---------- */
   const handleScroll = (e) => {
     const el = e.currentTarget;
     const h = el.clientHeight;
@@ -300,13 +275,11 @@ export default function Discover() {
     }
   };
 
-  /* ---------- Pop-up 1 (aviso) ---------- */
   const openPlanGate = () => {
     setShowPlanGate(true);
     if (navigator.vibrate) navigator.vibrate(6);
   };
 
-  /* ---------- Pop-up 1 → Pop-up 2 ---------- */
   const goToPayment = () => {
     const defaultPhone = myProfile?.whatsapp || myProfile?.phone || '';
     setPaymentPhone(defaultPhone);
@@ -318,68 +291,83 @@ export default function Discover() {
     setShowPayment(true);
   };
 
-  /* ---------- Contactar via WhatsApp ---------- */
+  /* ============================================================
+     CONTACTAR — usa profiles.whatsapp
+  ============================================================ */
   const requestContact = () => {
     const target = displayProfiles[currentIdx];
     if (!target || contacting) return;
     if (target.id === user.id) return showToast('Este perfil é teu.', 'error');
 
-    /* Já contactou antes → abre WhatsApp direto (não gasta contacto) */
+    /* 1) Verificar se o utilizador tem WhatsApp */
+    if (!target.whatsapp || !String(target.whatsapp).trim()) {
+      return showToast('Este utilizador não adicionou WhatsApp.', 'error');
+    }
+
+    /* 2) Já contactou antes → abre WhatsApp direto (não gasta contacto) */
     if (alreadyContacted) {
       return openWhatsAppFromHistory(target);
     }
 
-    /* Não tem contactos → pop-up de compra */
+    /* 3) Não tem contactos → pop-up de compra */
     if (balance <= 0) {
       return openPlanGate();
     }
 
-    /* Tem contactos → confirma e envia */
+    /* 4) Tem contactos → confirma e envia */
     setShowConfirm(true);
   };
 
-  const openWhatsAppFromHistory = async (target) => {
-    setContacting(true);
-    const { data } = await supabase.rpc('consume_contact', { target_user_id: target.id });
-    setContacting(false);
-    if (data?.success && data.whatsapp_link) openWhatsAppLink(target, data.whatsapp_link);
-    else showToast('Erro ao abrir conversa.', 'error');
+  const openWhatsAppFromHistory = (target) => {
+    const link = buildWaLink(target.whatsapp, target.name, myProfile?.name);
+    if (!link) return showToast('Este utilizador não adicionou WhatsApp.', 'error');
+    window.open(link, '_blank', 'noopener,noreferrer');
   };
 
   const executeContact = async () => {
     const target = displayProfiles[currentIdx];
     if (!target) return;
+
+    /* Verificação defensiva */
+    if (!target.whatsapp || !String(target.whatsapp).trim()) {
+      setShowConfirm(false);
+      return showToast('Este utilizador não adicionou WhatsApp.', 'error');
+    }
+
     setShowConfirm(false);
     setContacting(true);
-    const { data, error } = await supabase.rpc('consume_contact', { target_user_id: target.id });
+
+    /* Regista o contacto na BD (consome 1 contacto) */
+    const { data, error } = await supabase.rpc('consume_contact', {
+      target_user_id: target.id,
+    });
     setContacting(false);
+
     if (error) return showToast(error.message, 'error');
+
     if (!data?.success) {
       const msgs = {
         no_balance: 'Sem contactos. Ativa um plano.',
         blocked: 'Não é possível contactar.',
         target_banned: 'Perfil indisponível.',
-        target_no_whatsapp: 'Esta pessoa ainda não adicionou WhatsApp.',
+        target_no_whatsapp: 'Este utilizador não adicionou WhatsApp.',
         sender_not_verified: 'Precisas de ativar um plano para contactar.',
       };
       return showToast(msgs[data?.error] || 'Erro ao contactar.', 'error');
     }
+
     if (!data.already_contacted) {
       setBalance((b) => Math.max(0, b - 1));
       setAlreadyContacted(true);
       if (navigator.vibrate) navigator.vibrate([10, 30, 10]);
       showToast('Contacto utilizado.', 'success');
     }
-    setTimeout(() => openWhatsAppLink(target, data.whatsapp_link), 200);
-  };
 
-  const openWhatsAppLink = (target, whatsappLink) => {
-    const firstName = target.name?.split(' ')[0] || '';
-    const myName = myProfile?.name?.split(' ')[0] || '';
-    const message = `Olá ${firstName}! Vi o teu perfil no Te Quero${myName ? `. Sou o ${myName}` : ''}. Podemos falar?`;
-    const cleanNumber = whatsappLink.replace('https://wa.me/', '');
-    const waLink = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`;
-    window.open(waLink, '_blank', 'noopener,noreferrer');
+    /* Abre WhatsApp com o número da tabela profiles */
+    const link = buildWaLink(target.whatsapp, target.name, myProfile?.name);
+    if (!link) return showToast('Este utilizador não adicionou WhatsApp.', 'error');
+
+    setTimeout(() => window.open(link, '_blank', 'noopener,noreferrer'), 200);
   };
 
   /* ===================================================== */
@@ -525,7 +513,6 @@ export default function Discover() {
     return a;
   };
 
-  /* ---------- Loading ---------- */
   if (loading) {
     return (
       <div className="absolute inset-0 flex flex-col bg-gray-100 overflow-hidden">
@@ -536,7 +523,6 @@ export default function Discover() {
     );
   }
 
-  /* ---------- Sem perfis ---------- */
   if (baseProfiles.length === 0) {
     return (
       <div className="absolute inset-0 flex items-center justify-center px-6 text-center bg-gray-100">
@@ -555,6 +541,7 @@ export default function Discover() {
 
   const current = displayProfiles[currentIdx];
   const isMe = current?.id === user.id;
+  const currentHasWa = !!(current?.whatsapp && String(current.whatsapp).trim());
 
   return (
     <>
@@ -624,6 +611,7 @@ export default function Discover() {
             const totalLikes = profileLikes[p.id] || 0;
             const isActive = i === currentIdx;
             const targetVerified = p.is_verified === true;
+            const targetHasWa = !!(p.whatsapp && String(p.whatsapp).trim());
 
             return (
               <div key={`${p.id}-${i}`}
@@ -707,14 +695,23 @@ export default function Discover() {
                                 if (el) el.scrollTo({ top: i * el.clientHeight, behavior: 'smooth' });
                               }
                             }}
-                            className="w-12 h-12 rounded-full backdrop-blur border
+                            className={`relative w-12 h-12 rounded-full backdrop-blur border
                               flex items-center justify-center active:scale-90 transition-all duration-200
-                              bg-[#25D366] border-[#25D366]/50 shadow-lg shadow-green-500/40
-                              hover:bg-[#1eb356]"
-                            aria-label="Enviar mensagem">
-                            <WhatsAppIcon className="w-6 h-6 text-white" />
+                              ${targetHasWa
+                                ? 'bg-[#25D366] border-[#25D366]/50 shadow-lg shadow-green-500/40 hover:bg-[#1eb356]'
+                                : 'bg-gray-500/60 border-gray-400/40 cursor-not-allowed'}`}
+                            aria-label={targetHasWa ? 'Enviar mensagem' : 'Sem WhatsApp'}>
+                            <WhatsAppIcon className={`w-6 h-6 ${targetHasWa ? 'text-white' : 'text-white/70'}`} />
+                            {!targetHasWa && (
+                              <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full
+                                bg-red-500 border-2 border-white flex items-center justify-center">
+                                <i className="fi fi-sr-cross text-white text-[9px] leading-none" />
+                              </span>
+                            )}
                           </button>
-                          <span className="text-[11px] font-bold text-white/90 drop-shadow-md">Mensagem</span>
+                          <span className="text-[11px] font-bold text-white/90 drop-shadow-md">
+                            {targetHasWa ? 'Mensagem' : 'Sem WhatsApp'}
+                          </span>
                         </div>
 
                         <button
@@ -769,9 +766,7 @@ export default function Discover() {
         </div>
       </div>
 
-      {/* ============================================ */}
-      {/* ===== POP-UP 1: AVISO "SEM CONTACTOS" ======== */}
-      {/* ============================================ */}
+      {/* POP-UP 1: SEM CONTACTOS */}
       {showPlanGate && (
         <div className="fixed inset-0 z-[180] flex items-end sm:items-center justify-center">
           <div onClick={() => setShowPlanGate(false)}
@@ -818,9 +813,7 @@ export default function Discover() {
         </div>
       )}
 
-      {/* ===================================================== */}
-      {/* ===== POP-UP 2: PLANO + PAGAMENTO M-PESA / E-MOLA ==== */}
-      {/* ===================================================== */}
+      {/* POP-UP 2: PAGAMENTO */}
       {showPayment && (
         <div className="fixed inset-0 z-[185] flex items-end sm:items-center justify-center">
           <div onClick={() => paymentStatus === 'form' && cancelPayment()}
@@ -829,7 +822,6 @@ export default function Discover() {
           <div className="relative w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl
             max-h-[92vh] overflow-y-auto animate-[slideUpConfirm_280ms_cubic-bezier(0.22,1,0.36,1)]">
 
-            {/* ================= ESTADO: FORMULÁRIO ================= */}
             {paymentStatus === 'form' && (
               <>
                 <div className="sticky top-0 z-10 bg-white px-6 pt-6 pb-4 border-b border-gray-100
@@ -845,14 +837,12 @@ export default function Discover() {
                   </div>
                   <button onClick={cancelPayment}
                     className="w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200
-                      flex items-center justify-center text-gray-600 active:scale-95 transition shrink-0"
-                    aria-label="Fechar">
+                      flex items-center justify-center text-gray-600 active:scale-95 transition shrink-0">
                     <i className="fi fi-rr-cross text-sm leading-none" />
                   </button>
                 </div>
 
                 <div className="px-6 pb-8 pt-5">
-                  {/* Planos */}
                   <div className="space-y-2.5">
                     {PAYMENT_PLANS.map((plan) => {
                       const active = selectedPlan === plan.id;
@@ -894,11 +884,8 @@ export default function Discover() {
                     })}
                   </div>
 
-                  {/* Método de pagamento */}
                   <div className="mt-6">
-                    <p className="text-[13px] font-semibold text-gray-700 mb-2">
-                      Método de pagamento
-                    </p>
+                    <p className="text-[13px] font-semibold text-gray-700 mb-2">Método de pagamento</p>
                     <div className="grid grid-cols-2 gap-2">
                       {PAYMENT_METHODS.map((m) => {
                         const active = paymentMethod === m.id;
@@ -934,7 +921,6 @@ export default function Discover() {
                     </div>
                   </div>
 
-                  {/* Número de pagamento */}
                   <label className="block mt-6">
                     <span className="text-[13px] font-semibold text-gray-700">
                       Número {PAYMENT_METHODS.find((m) => m.id === paymentMethod)?.name}
@@ -971,7 +957,6 @@ export default function Discover() {
                     </div>
                   )}
 
-                  {/* Botões */}
                   <div className="mt-6 flex flex-col gap-2">
                     <button onClick={startPayment}
                       className="w-full py-4 rounded-2xl bg-green-600 text-white font-bold text-[15px]
@@ -993,7 +978,6 @@ export default function Discover() {
               </>
             )}
 
-            {/* ================= ESTADO: PROCESSING ================= */}
             {paymentStatus === 'processing' && (
               <div className="px-6 py-12 flex flex-col items-center text-center">
                 <div className="w-20 h-20 rounded-full bg-green-50 flex items-center justify-center mb-5">
@@ -1008,7 +992,6 @@ export default function Discover() {
               </div>
             )}
 
-            {/* ================= ESTADO: WAITING ================= */}
             {paymentStatus === 'waiting' && (
               <div className="px-6 py-10 flex flex-col items-center text-center">
                 <div className="w-20 h-20 rounded-full bg-amber-50 flex items-center justify-center mb-5 relative">
@@ -1031,9 +1014,7 @@ export default function Discover() {
                 </p>
 
                 <div className="mt-5 w-full max-w-[320px] rounded-2xl bg-gray-50 border border-gray-100 p-4 text-left">
-                  <p className="text-[12px] font-bold uppercase tracking-wider text-gray-500 mb-2">
-                    Passos
-                  </p>
+                  <p className="text-[12px] font-bold uppercase tracking-wider text-gray-500 mb-2">Passos</p>
                   <ol className="space-y-2 text-[13px] text-gray-700">
                     <li className="flex gap-2">
                       <span className="w-5 h-5 rounded-full bg-green-600 text-white text-[10px] font-bold
@@ -1065,7 +1046,6 @@ export default function Discover() {
               </div>
             )}
 
-            {/* ================= ESTADO: SUCCESS ================= */}
             {paymentStatus === 'success' && (
               <div className="px-6 py-12 flex flex-col items-center text-center">
                 <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mb-5
@@ -1089,7 +1069,6 @@ export default function Discover() {
               </div>
             )}
 
-            {/* ================= ESTADO: ERROR ================= */}
             {paymentStatus === 'error' && (
               <div className="px-6 py-10 flex flex-col items-center text-center">
                 <div className="w-20 h-20 rounded-full bg-red-50 flex items-center justify-center mb-5">
@@ -1120,7 +1099,7 @@ export default function Discover() {
         </div>
       )}
 
-      {/* ============ MODAL CONFIRMAÇÃO ============ */}
+      {/* MODAL CONFIRMAÇÃO */}
       {showConfirm && current && !isMe && (
         <div className="fixed inset-0 z-[170] flex items-end sm:items-center justify-center">
           <div onClick={() => setShowConfirm(false)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
@@ -1175,7 +1154,7 @@ export default function Discover() {
         </div>
       )}
 
-      {/* ============ BOTTOM SHEET: ACÇÕES ============ */}
+      {/* BOTTOM SHEET: ACÇÕES */}
       {showActionsSheet && current && (
         <div onClick={() => setShowActionsSheet(false)}
           className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm flex items-end justify-center animate-[fadeIn_150ms_ease-out]">
@@ -1221,7 +1200,7 @@ export default function Discover() {
         </div>
       )}
 
-      {/* ============ BOTTOM SHEET: REPORTAR ============ */}
+      {/* BOTTOM SHEET: REPORTAR */}
       {showReportSheet && current && (
         <div onClick={() => setShowReportSheet(false)}
           className="fixed inset-0 z-[160] bg-black/60 backdrop-blur-sm flex items-end justify-center animate-[fadeIn_150ms_ease-out]">
