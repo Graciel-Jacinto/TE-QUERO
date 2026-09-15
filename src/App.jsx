@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
+import { FeatureFlagsProvider } from './hooks/useFeatureFlags';
 import ProtectedRoute from './components/ProtectedRoute';
 import OnboardingGuard from './components/OnboardingGuard';
 
@@ -30,63 +31,68 @@ import AdminAdmins from './pages/admin/AdminAdmins';
 import AdminReports from './pages/admin/AdminReports';
 import AdminVerifications from './pages/admin/AdminVerifications';
 import AdminPlans from './pages/admin/AdminPlans';
+import AdminFeatureFlags from './pages/admin/FeatureFlags';
 
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          {/* ============ PÚBLICAS ============ */}
-          <Route path="/" element={<Landing />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/registar" element={<Register />} />
+      <FeatureFlagsProvider>
+        <BrowserRouter>
+          <Routes>
+            {/* ============ PÚBLICAS ============ */}
+            <Route path="/" element={<Landing />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/registar" element={<Register />} />
 
-          {/* ============ ONBOARDING ============ */}
-          <Route element={<OnboardingGuard />}>
-            <Route path="/onboarding" element={<OnboardingLayout />}>
-              <Route index element={<Navigate to="bem-vindo" replace />} />
-              <Route path="bem-vindo" element={<Welcome />} />
-              <Route path="regras" element={<Rules />} />
-              <Route path="perfil" element={<ProfileSetup />} />
+            {/* ============ ONBOARDING ============ */}
+            <Route element={<OnboardingGuard />}>
+              <Route path="/onboarding" element={<OnboardingLayout />}>
+                <Route index element={<Navigate to="bem-vindo" replace />} />
+                <Route path="bem-vindo" element={<Welcome />} />
+                <Route path="regras" element={<Rules />} />
+                <Route path="perfil" element={<ProfileSetup />} />
+              </Route>
             </Route>
-          </Route>
 
-          {/* ============ APP (protegida) ============ */}
-          <Route element={<ProtectedRoute />}>
-            <Route path="/app" element={<AppLayout />}>
-              {/* /app → vai directo para Descobrir */}
-              <Route index element={<Navigate to="descobrir" replace />} />
+            {/* ============ APP (protegida) ============ */}
+            <Route element={<ProtectedRoute />}>
+              <Route path="/app" element={<AppLayout />}>
+                {/* /app → vai directo para Descobrir */}
+                <Route index element={<Navigate to="descobrir" replace />} />
 
-              <Route path="descobrir" element={<Discover />} />
-              <Route path="pesquisa" element={<Search />} />
-              <Route path="contactos" element={<Contacts />} />
-              <Route path="notificacoes" element={<Notifications />} />
-              <Route path="planos" element={<Plans />} />
+                <Route path="descobrir" element={<Discover />} />
+                <Route path="pesquisa" element={<Search />} />
+                <Route path="contactos" element={<Contacts />} />
+                <Route path="notificacoes" element={<Notifications />} />
+                <Route path="planos" element={<Plans />} />
 
-              {/* O MEU perfil (edição) */}
-              <Route path="perfil" element={<Profile />} />
+                {/* O MEU perfil (edição) */}
+                <Route path="perfil" element={<Profile />} />
 
-              {/* PERFIL PÚBLICO (detalhes de outro utilizador) */}
-              <Route path="perfil/:slug" element={<UserProfile />} />
-              <Route path="chat/:id" element={<Chat />} />   {/* ← NOVO */}
+                {/* PERFIL PÚBLICO (detalhes de outro utilizador) */}
+                <Route path="perfil/:slug" element={<UserProfile />} />
+                <Route path="chat/:id" element={<Chat />} />
+              </Route>
             </Route>
-          </Route>
 
-          <Route element={<AdminRoute />}>
-  <Route path="/admin" element={<AdminLayout />}>
-    <Route index element={<AdminDashboard />} />
-    <Route path="contas" element={<AdminAccounts />} />
-    <Route path="verificacoes" element={<AdminVerifications />} />
-    <Route path="denuncias" element={<AdminReports />} />
-    <Route path="admins" element={<AdminAdmins />} />
-    <Route path="planos" element={<AdminPlans />} />
-  </Route>
-</Route>
+            {/* ============ ADMIN ============ */}
+            <Route element={<AdminRoute />}>
+              <Route path="/admin" element={<AdminLayout />}>
+                <Route index element={<AdminDashboard />} />
+                <Route path="contas" element={<AdminAccounts />} />
+                <Route path="verificacoes" element={<AdminVerifications />} />
+                <Route path="denuncias" element={<AdminReports />} />
+                <Route path="admins" element={<AdminAdmins />} />
+                <Route path="planos" element={<AdminPlans />} />
+                <Route path="flags" element={<AdminFeatureFlags />} />   {/* ← NOVO */}
+              </Route>
+            </Route>
 
-          {/* ============ FALLBACK ============ */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </BrowserRouter>
+            {/* ============ FALLBACK ============ */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </BrowserRouter>
+      </FeatureFlagsProvider>
     </AuthProvider>
   );
 }

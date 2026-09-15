@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { profilePath, profileUrl } from '../../lib/profilePath';
+import { useFeature } from '../../hooks/useFeatureFlags';
 
 const REPORT_REASONS = [
   { value: 'fake',      label: 'Perfil falso ou enganoso' },
@@ -15,7 +16,6 @@ const REPORT_REASONS = [
 const SOFT_EMOJIS = ['💖', '✨', '💕', '🌸', '💗'];
 const SOFT_COLORS = ['#fb7191', '#fda4b4', '#fecdd6', '#f43f6f'];
 
-/* Planos disponíveis no pop-up de pagamento */
 const PAYMENT_PLANS = [
   { id: 'p1', label: 'Plano 01', contacts: '3 contactos',  price: 99,  priceLabel: '99 MZN',  tag: null },
   { id: 'p2', label: 'Plano 02', contacts: '10 contactos', price: 299, priceLabel: '299 MZN', tag: 'Popular' },
@@ -91,7 +91,6 @@ function formatPhone(raw) {
   return String(raw || '').replace(/[^\d+]/g, '').slice(0, 15);
 }
 
-/* Constrói link do WhatsApp a partir do número guardado em profiles.whatsapp */
 function buildWaLink(whatsappNumber, targetName, myName) {
   const digits = String(whatsappNumber || '').replace(/\D/g, '');
   if (!digits) return null;
@@ -106,6 +105,9 @@ function buildWaLink(whatsappNumber, targetName, myName) {
 export default function Discover() {
   const navigate = useNavigate();
   const { user, profile: myProfile } = useAuth();
+
+  /* 🚩 Feature flag: contacto grátis (invisível na UI) */
+  const freeContact = useFeature('free_contact');
 
   const [baseProfiles, setBaseProfiles] = useState([]);
   const [displayProfiles, setDisplayProfiles] = useState([]);
@@ -124,13 +126,11 @@ export default function Discover() {
   const [partyActive, setPartyActive] = useState(false);
   const [alreadyContacted, setAlreadyContacted] = useState(false);
 
-  /* ---------- Pop-ups de plano / pagamento ---------- */
   const [showPlanGate, setShowPlanGate] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState('p2');
   const [paymentMethod, setPaymentMethod] = useState('mpesa');
   const [paymentPhone, setPaymentPhone] = useState('');
-
   const [paymentStatus, setPaymentStatus] = useState('form');
   const [paymentError, setPaymentError] = useState('');
   const pollRef = useRef(null);
@@ -142,7 +142,7 @@ export default function Discover() {
   const iHaveSelo = myProfile?.is_verified === true;
   const currentPlanObj = PAYMENT_PLANS.find((p) => p.id === selectedPlan) || PAYMENT_PLANS[1];
 
-  /* ---------- Carregar dados (com whatsapp) ---------- */
+  /* ---------- Carregar dados ---------- */
   useEffect(() => {
     if (!user) return;
     (async () => {
@@ -215,7 +215,7 @@ export default function Discover() {
     })();
   }, [currentIdx, displayProfiles, user]);
 
-  /* ---------- Limpar polling ao fechar ---------- */
+  /* ---------- Limpar polling ---------- */
   useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
@@ -237,7 +237,6 @@ export default function Discover() {
     el.scrollTo({ top: (currentIdx + dir) * h, behavior: 'smooth' });
   };
 
-  /* ---------- Toggle like ---------- */
   const toggleLike = async (targetId) => {
     if (liking) return;
     if (targetId === user.id) return;
@@ -259,7 +258,6 @@ export default function Discover() {
     }
   };
 
-  /* ---------- Toque no card ---------- */
   const handleCardTap = (profile, mine) => {
     const now = Date.now();
     if (now - lastTapRef.current < 300) {
@@ -292,82 +290,82 @@ export default function Discover() {
   };
 
   /* ============================================================
-     CONTACTAR — usa profiles.whatsapp
+     CONTACTAR — lógica da flag mantida (sem UI visível)
   ============================================================ */
   const requestContact = () => {
     const target = displayProfiles[currentIdx];
     if (!target || contacting) return;
     if (target.id === user.id) return showToast('Este perfil é teu.', 'error');
 
-    /* 1) Verificar se o utilizador tem WhatsApp */
     if (!target.whatsapp || !String(target.whatsapp).trim()) {
       return showToast('Este utilizador não adicionou WhatsApp.', 'error');
     }
 
-    /* 2) Já contactou antes → abre WhatsApp direto (não gasta contacto) */
-    if (alreadyContacted) {
-      return openWhatsAppFromHistory(target);
+    /* Flag ativa → abre direto sem gastar contacto */
+    if (freeContact) {
+      return openWhatsAppDirect(target);
     }
 
-    /* 3) Não tem contactos → pop-up de compra */
-    if (balance <= 0) {
-      return openPlanGate();
-    }
-
-    /* 4) Tem contactos → confirma e envia */
+    /* Fluxo normal */
+    if (alreadyContacted) return openWhatsAppFromHistory(target);
+    if (balance <= 0) return openPlanGate();
     setShowConfirm(true);
   };
 
-  const openWhatsAppFromHistory = (target) => {
+  const openWhatsAppDirect = (target) => {
     const link = buildWaLink(target.whatsapp, target.name, myProfile?.name);
     if (!link) return showToast('Este utilizador não adicionou WhatsApp.', 'error');
+    if (navigator.vibrate) navigator.vibrate(10);
     window.open(link, '_blank', 'noopener,noreferrer');
+  };
+
+  const openWhatsAppFromHistory = async (target) => {
+    if (freeContact) return openWhatsAppDirect(target);
+
+    setContacting(true);
+    const { data } = await supabase.rpc('consume_contact', { target_user_id: target.id });
+    setContacting(false);
+    if (data?.success && data.whatsapp_link) openWhatsAppLink(target, data.whatsapp_link);
+    else showToast('Erro ao abrir conversa.', 'error');
   };
 
   const executeContact = async () => {
     const target = displayProfiles[currentIdx];
     if (!target) return;
-
-    /* Verificação defensiva */
-    if (!target.whatsapp || !String(target.whatsapp).trim()) {
-      setShowConfirm(false);
-      return showToast('Este utilizador não adicionou WhatsApp.', 'error');
-    }
-
     setShowConfirm(false);
+
+    if (freeContact) return openWhatsAppDirect(target);
+
     setContacting(true);
-
-    /* Regista o contacto na BD (consome 1 contacto) */
-    const { data, error } = await supabase.rpc('consume_contact', {
-      target_user_id: target.id,
-    });
+    const { data, error } = await supabase.rpc('consume_contact', { target_user_id: target.id });
     setContacting(false);
-
     if (error) return showToast(error.message, 'error');
-
     if (!data?.success) {
       const msgs = {
         no_balance: 'Sem contactos. Ativa um plano.',
         blocked: 'Não é possível contactar.',
         target_banned: 'Perfil indisponível.',
-        target_no_whatsapp: 'Este utilizador não adicionou WhatsApp.',
+        target_no_whatsapp: 'Esta pessoa ainda não adicionou WhatsApp.',
         sender_not_verified: 'Precisas de ativar um plano para contactar.',
       };
       return showToast(msgs[data?.error] || 'Erro ao contactar.', 'error');
     }
-
     if (!data.already_contacted) {
       setBalance((b) => Math.max(0, b - 1));
       setAlreadyContacted(true);
       if (navigator.vibrate) navigator.vibrate([10, 30, 10]);
       showToast('Contacto utilizado.', 'success');
     }
+    setTimeout(() => openWhatsAppLink(target, data.whatsapp_link), 200);
+  };
 
-    /* Abre WhatsApp com o número da tabela profiles */
-    const link = buildWaLink(target.whatsapp, target.name, myProfile?.name);
-    if (!link) return showToast('Este utilizador não adicionou WhatsApp.', 'error');
-
-    setTimeout(() => window.open(link, '_blank', 'noopener,noreferrer'), 200);
+  const openWhatsAppLink = (target, whatsappLink) => {
+    const firstName = target.name?.split(' ')[0] || '';
+    const myName = myProfile?.name?.split(' ')[0] || '';
+    const message = `Olá ${firstName}! Vi o teu perfil no Te Quero${myName ? `. Sou o ${myName}` : ''}. Podemos falar?`;
+    const cleanNumber = String(whatsappLink).replace('https://wa.me/', '');
+    const waLink = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`;
+    window.open(waLink, '_blank', 'noopener,noreferrer');
   };
 
   /* ===================================================== */
@@ -384,10 +382,7 @@ export default function Discover() {
     setPaymentStatus('processing');
 
     try {
-      await supabase
-        .from('profiles')
-        .update({ whatsapp: clean })
-        .eq('id', user.id);
+      await supabase.from('profiles').update({ whatsapp: clean }).eq('id', user.id);
 
       const { data, error } = await supabase.functions.invoke('initiate-plan-payment', {
         body: {
@@ -403,7 +398,6 @@ export default function Discover() {
       }
 
       setPaymentStatus('waiting');
-
       const reference = data.reference;
       let attempts = 0;
 
@@ -420,7 +414,6 @@ export default function Discover() {
           pollRef.current = null;
           setPaymentStatus('success');
           if (navigator.vibrate) navigator.vibrate([12, 40, 12]);
-
           setBalance((b) => b + (selectedPlan === 'p1' ? 3 : selectedPlan === 'p2' ? 10 : 999));
           setTimeout(() => {
             setShowPayment(false);
@@ -541,14 +534,14 @@ export default function Discover() {
 
   const current = displayProfiles[currentIdx];
   const isMe = current?.id === user.id;
-  const currentHasWa = !!(current?.whatsapp && String(current.whatsapp).trim());
 
   return (
     <>
       <PartyBurst active={partyActive} />
 
       <div className="absolute inset-0 flex flex-col bg-gray-100 overflow-hidden">
-        {/* Saldo */}
+
+        {/* Saldo (sempre visível) */}
         <button
           onClick={() => navigate('/app/contactos')}
           className="absolute top-3 right-3 z-30 flex items-center gap-1.5

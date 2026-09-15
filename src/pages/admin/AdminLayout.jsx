@@ -9,6 +9,7 @@ const allTabs = [
   { to: '/admin/denuncias',    label: 'Denúncias',       short: 'Denúncias',  icon: 'fi-rr-flag',           fill: 'fi-sr-flag' },
   { to: '/admin/admins',       label: 'Administradores', short: 'Admins',     icon: 'fi-rr-shield-check',   fill: 'fi-sr-shield-check' },
   { to: '/admin/planos',       label: 'Planos',          short: 'Planos',     icon: 'fi-rr-credit-card',    fill: 'fi-sr-credit-card' },
+  { to: '/admin/flags',        label: 'Feature Flags',   short: 'Flags',      icon: 'fi-rr-toggle-on',      fill: 'fi-sr-toggle-on' },
 ];
 
 /* Bottom nav mobile — 4 principais */
