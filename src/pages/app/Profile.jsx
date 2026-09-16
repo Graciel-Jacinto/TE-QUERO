@@ -202,6 +202,12 @@ export default function Profile() {
   const [paymentError, setPaymentError] = useState('');
   const pollRef = useRef(null);
 
+  /* ---------- Eliminar conta ---------- */
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteStatus, setDeleteStatus] = useState('idle'); // idle | deleting | done | error
+  const [deleteError, setDeleteError] = useState('');
+
   const isVerified = authProfile?.is_verified === true;
   const maxPhotos = isVerified ? PAID_MAX_PHOTOS : FREE_MAX_PHOTOS;
   const maxVideos = isVerified ? PAID_MAX_VIDEOS : FREE_MAX_VIDEOS;
@@ -586,6 +592,58 @@ export default function Profile() {
     setShowPayment(false);
     setPaymentStatus('form');
     setPaymentError('');
+  };
+
+  /* ============================================================
+     ELIMINAR CONTA (desativar auth + apagar profile)
+  ============================================================ */
+  const openDeleteAccount = () => {
+    setDeleteConfirmText('');
+    setDeleteError('');
+    setDeleteStatus('idle');
+    setShowDeleteAccount(true);
+  };
+
+  const closeDeleteAccount = () => {
+    if (deleteStatus === 'deleting') return; // não fecha durante o processo
+    setShowDeleteAccount(false);
+    setDeleteConfirmText('');
+    setDeleteError('');
+    setDeleteStatus('idle');
+  };
+
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmText.trim().toUpperCase() !== 'ELIMINAR') {
+      setDeleteError('Escreve ELIMINAR (em maiúsculas) para confirmar.');
+      return;
+    }
+
+    setDeleteError('');
+    setDeleteStatus('deleting');
+
+    try {
+      // Edge Function: desativa auth.users + apaga row em profiles
+      const { data, error } = await supabase.functions.invoke('delete-account', {
+        body: { confirm: 'ELIMINAR' },
+      });
+
+      if (error || !data?.success) {
+        throw new Error(data?.error || error?.message || 'Não foi possível eliminar a conta.');
+      }
+
+      setDeleteStatus('done');
+
+      // Limpa sessão e sai
+      setTimeout(async () => {
+        try {
+          await supabase.auth.signOut();
+        } catch (_) {}
+        navigate('/login', { replace: true });
+      }, 2200);
+    } catch (err) {
+      setDeleteStatus('error');
+      setDeleteError(err.message || 'Erro ao eliminar a conta.');
+    }
   };
 
   if (!authProfile) {
@@ -1248,6 +1306,38 @@ export default function Profile() {
           )}
         </div>
 
+        {/* ============================================================ */}
+        {/* ============ ZONA DE PERIGO ================================ */}
+        {/* ============================================================ */}
+        <div className="mt-6 bg-white rounded-3xl border border-red-100 p-6 sm:p-8">
+          <div className="flex items-start gap-4">
+            <div className="w-11 h-11 rounded-2xl bg-red-50 flex items-center justify-center shrink-0">
+              <i className="fi fi-sr-triangle-warning text-red-600 text-lg leading-none" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="font-display text-[16px] font-extrabold text-gray-900">
+                Zona de perigo
+              </h3>
+              <p className="mt-1 text-[13px] text-gray-600 leading-relaxed">
+                Eliminar a tua conta remove permanentemente o teu perfil, fotos, vídeos e
+                contactos. A conta de autenticação fica <strong>desativada</strong> e não poderás
+                voltar a entrar sem apoio do suporte.
+              </p>
+
+              <button
+                type="button"
+                onClick={openDeleteAccount}
+                className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl
+                  bg-white border border-red-200 text-red-600
+                  text-[13.5px] font-bold hover:bg-red-50
+                  active:scale-[0.98] transition">
+                <i className="fi fi-rr-trash text-base leading-none" />
+                Eliminar conta
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div className="h-8" />
       </div>
 
@@ -1617,6 +1707,144 @@ export default function Profile() {
                   </button>
                 </div>
               </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================== */}
+      {/* ===== POP-UP 3: ELIMINAR CONTA ====================== */}
+      {/* ===================================================== */}
+      {showDeleteAccount && (
+        <div className="fixed inset-0 z-[190] flex items-end sm:items-center justify-center">
+          <div
+            onClick={closeDeleteAccount}
+            className="absolute inset-0 bg-black/75 backdrop-blur-sm"
+          />
+
+          <div className="relative w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl
+            p-6 pb-8 sm:p-7 animate-[slideUpConfirm_280ms_cubic-bezier(0.22,1,0.36,1)]">
+            <div className="sm:hidden w-12 h-1.5 rounded-full bg-gray-300 mx-auto mb-5" />
+
+            {deleteStatus === 'done' ? (
+              <div className="py-6 flex flex-col items-center text-center">
+                <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mb-5">
+                  <i className="fi fi-sr-check-circle text-green-600 text-4xl leading-none" />
+                </div>
+                <h3 className="font-display text-[20px] font-extrabold text-gray-900">
+                  Conta eliminada
+                </h3>
+                <p className="mt-2 text-[13.5px] text-gray-600 leading-relaxed max-w-[280px]">
+                  O teu perfil foi removido e a conta foi desativada. Vais ser
+                  redirecionado para o início de sessão…
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="flex justify-center mb-4">
+                  <div className="w-20 h-20 rounded-3xl bg-red-50 flex items-center justify-center">
+                    <i className="fi fi-sr-triangle-warning text-red-600 text-3xl leading-none" />
+                  </div>
+                </div>
+
+                <h3 className="font-display text-[21px] font-extrabold text-gray-900 text-center leading-tight">
+                  Eliminar a tua conta?
+                </h3>
+                <p className="mt-3 text-[13.5px] text-gray-600 text-center leading-relaxed">
+                  Esta ação é <strong>permanente</strong>. O teu perfil, fotos, vídeos e
+                  contactos serão removidos. Não é possível desfazer.
+                </p>
+
+                <div className="mt-5 rounded-2xl bg-red-50 border border-red-100 p-4">
+                  <p className="text-[12px] font-bold uppercase tracking-wider text-red-700 mb-2">
+                    Vais perder
+                  </p>
+                  <ul className="space-y-1.5 text-[13px] text-red-800/90">
+                    <li className="flex items-center gap-2">
+                      <i className="fi fi-sr-cross-small text-red-600 leading-none" />
+                      Perfil, bio e interesses
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <i className="fi fi-sr-cross-small text-red-600 leading-none" />
+                      Todas as fotos e vídeos
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <i className="fi fi-sr-cross-small text-red-600 leading-none" />
+                      Contactos e conversas
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <i className="fi fi-sr-cross-small text-red-600 leading-none" />
+                      Plano ativo (sem reembolso)
+                    </li>
+                  </ul>
+                </div>
+
+                <label className="block mt-5">
+                  <span className="text-[12.5px] font-semibold text-gray-700">
+                    Escreve <strong className="text-red-600">ELIMINAR</strong> para confirmar
+                  </span>
+                  <input
+                    type="text"
+                    value={deleteConfirmText}
+                    onChange={(e) => setDeleteConfirmText(e.target.value)}
+                    disabled={deleteStatus === 'deleting'}
+                    autoComplete="off"
+                    autoCapitalize="characters"
+                    placeholder="ELIMINAR"
+                    className="mt-2 w-full px-3.5 py-3 rounded-xl border border-gray-200
+                      text-[15px] font-bold tracking-wider text-center uppercase
+                      focus:outline-none focus:ring-2 focus:ring-red-500/30
+                      focus:border-red-500 transition
+                      disabled:opacity-60"
+                  />
+                </label>
+
+                {deleteError && (
+                  <div className="mt-3 flex items-start gap-2 px-3 py-2.5 rounded-xl
+                    bg-red-50 border border-red-200">
+                    <i className="fi fi-sr-info text-red-600 text-sm leading-none mt-0.5" />
+                    <span className="text-[12.5px] font-medium text-red-700">{deleteError}</span>
+                  </div>
+                )}
+
+                <div className="mt-6 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={handleDeleteAccount}
+                    disabled={
+                      deleteStatus === 'deleting' ||
+                      deleteConfirmText.trim().toUpperCase() !== 'ELIMINAR'
+                    }
+                    className="w-full py-4 rounded-2xl bg-red-600 text-white font-bold text-[15px]
+                      hover:bg-red-700 active:scale-[0.98] transition
+                      shadow-lg shadow-red-600/25
+                      disabled:opacity-50 disabled:cursor-not-allowed
+                      disabled:shadow-none disabled:active:scale-100
+                      flex items-center justify-center gap-2">
+                    {deleteStatus === 'deleting' ? (
+                      <>
+                        <span className="h-4 w-4 border-2 border-white/40 border-t-white
+                          rounded-full animate-spin" />
+                        A eliminar…
+                      </>
+                    ) : (
+                      <>
+                        <i className="fi fi-rr-trash text-base leading-none" />
+                        Eliminar definitivamente
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={closeDeleteAccount}
+                    disabled={deleteStatus === 'deleting'}
+                    className="w-full py-3.5 rounded-2xl bg-gray-100 text-gray-700 font-semibold text-[14px]
+                      hover:bg-gray-200 transition disabled:opacity-50">
+                    Cancelar
+                  </button>
+                </div>
+              </>
             )}
           </div>
         </div>
