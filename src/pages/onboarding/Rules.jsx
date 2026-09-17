@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
+import { track } from '../../lib/track';
 
 const rules = [
   {
@@ -38,26 +39,43 @@ export default function Rules() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  /* ---------- Tracking: entrada na página ---------- */
+  useEffect(() => {
+    track('rules_view', 'started');
+  }, []);
+
   const handleContinue = async () => {
     if (!accepted) return;
     setError('');
     setLoading(true);
+
+    await track('rules_accept_start', 'started');
 
     const { error } = await supabase
       .from('profiles')
       .update({ rules_accepted_at: new Date().toISOString() })
       .eq('id', user.id);
 
-    setLoading(false);
-    if (error) return setError(error.message);
+    if (error) {
+      setLoading(false);
+      await track('rules_accept_error', 'error', {
+        message: error.message,
+        code: error.code,
+        url: window.location.pathname,
+      });
+      return setError(error.message);
+    }
+
+    await track('rules_accept', 'success');
 
     await refreshProfile();
+    setLoading(false);
     navigate('/onboarding/perfil');
   };
 
   return (
-    <div className="h-[calc(100vh-120px)] sm:h-[calc(100vh-140px)]
-      flex flex-col bg-white overflow-hidden">
+    <div className="min-h-[calc(100vh-120px)] sm:min-h-[calc(100vh-140px)]
+      flex flex-col bg-white">
 
       {/* Logo topo */}
       <div className="shrink-0 flex justify-center pt-4 sm:pt-6">
@@ -72,12 +90,12 @@ export default function Rules() {
         </div>
       </div>
 
-      {/* Conteúdo */}
-      <div className="flex-1 min-h-0 w-full max-w-2xl mx-auto px-6 sm:px-8
+      {/* Conteúdo — flex-1 permite crescer e fazer scroll natural se necessário */}
+      <div className="flex-1 w-full max-w-2xl mx-auto px-6 sm:px-8
         flex flex-col py-4 sm:py-6">
 
         {/* Cabeçalho */}
-        <div className="shrink-0 text-center mb-5">
+        <div className="shrink-0 text-center mb-4 sm:mb-5">
           <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-brand-600 mb-2">
             Passo 2 de 3
           </p>
@@ -91,8 +109,8 @@ export default function Rules() {
           </p>
         </div>
 
-        {/* Lista de regras — ocupa o espaço disponível */}
-        <ul className="flex-1 min-h-0 flex flex-col justify-center gap-1">
+        {/* Lista de regras — sem min-h-0 nem overflow-hidden, cresce naturalmente */}
+        <ul className="flex-1 flex flex-col justify-center gap-1 py-1">
           {rules.map((r, i) => (
             <li
               key={i}
@@ -104,7 +122,7 @@ export default function Rules() {
                 group-hover:bg-brand-100 transition-colors">
                 <i className={`fi ${r.icon} text-brand-600 text-[15px] leading-none`} />
               </div>
-              <div className="pt-0.5 min-w-0">
+              <div className="pt-0.5 min-w-0 flex-1">
                 <p className="font-display font-bold text-[14px] text-gray-900 leading-snug">
                   {r.title}
                 </p>

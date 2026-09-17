@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
+import { track } from '../../lib/track';
 
 /* ---------- Províncias de Moçambique ---------- */
 const PROVINCES = {
@@ -273,6 +274,20 @@ export default function ProfileSetup() {
 
   const [loading, setLoading] = useState(false);
   const [touchedSteps, setTouchedSteps] = useState({});
+  const [error, setError] = useState('');
+
+  /* ============ TRACKING ============ */
+
+  // Entrada na página
+  useEffect(() => {
+    track('profile_view', 'started');
+  }, []);
+
+  // Cada mudança de passo
+  useEffect(() => {
+    track(`profile_step_${step}`, 'started', { step });
+    // eslint-disable-next-line
+  }, [step]);
 
   const districts = useMemo(
     () => (form.province ? PROVINCES[form.province] || [] : []),
@@ -427,7 +442,13 @@ export default function ProfileSetup() {
 
   const goNext = () => {
     setTouchedSteps((t) => ({ ...t, [step]: true }));
-    if (!stepValid[step]) return;
+    if (!stepValid[step]) {
+      track(`profile_step_${step}_invalid`, 'error', {
+        step,
+        message: 'Campos em falta ou inválidos',
+      });
+      return;
+    }
     if (step < 4) {
       setDirection(1);
       setStep(step + 1);
@@ -452,6 +473,7 @@ export default function ProfileSetup() {
     }
   };
 
+  /* ---------- Finalizar (com tracking completo) ---------- */
   const handleFinish = async () => {
     setTouchedSteps({ 1: true, 2: true, 3: true, 4: true });
     if (!checklist.complete) {
@@ -463,10 +485,17 @@ export default function ProfileSetup() {
           setStep(Number(stepOfField[0]));
         }
       }
+      await track('profile_save_invalid', 'error', {
+        message: 'Checklist incompleta',
+        missing: checklist.items.filter((i) => !i.done).map((i) => i.key),
+      });
       return;
     }
 
+    setError('');
     setLoading(true);
+    await track('profile_save_start', 'started');
+
     try {
       const avatar_url = await uploadAvatar();
       const city = [form.neighborhood?.trim(), form.district, form.province].filter(Boolean).join(', ');
@@ -485,16 +514,32 @@ export default function ProfileSetup() {
           whatsapp: fullWhatsapp,
           avatar_url,
           onboarding_completed: true,
+          onboarding_step: 'done',
         })
         .eq('id', user.id);
 
       if (upErr) throw upErr;
 
+      await track('profile_save_ok', 'success');
+
       await refreshProfile();
       navigate('/app/descobrir', { replace: true });
     } catch (err) {
+      await track('profile_save_error', 'error', {
+        message: err?.message || 'Erro desconhecido',
+        code: err?.code || null,
+        details: err?.details || null,
+        hint: err?.hint || null,
+        url: window.location.pathname,
+        online: navigator.onLine,
+      });
+
       setLoading(false);
-      alert(err.message || 'Erro ao guardar. Tenta novamente.');
+      const friendly =
+        err?.message?.toLowerCase().includes('fetch') || !navigator.onLine
+          ? 'Sem ligação à internet. Verifica a tua rede e tenta novamente.'
+          : err?.message || 'Erro ao guardar. Tenta novamente.';
+      setError(friendly);
     }
   };
 
@@ -595,7 +640,7 @@ export default function ProfileSetup() {
           </p>
         </div>
 
-        {/* Indicador de passos — responsivo */}
+        {/* Indicador de passos */}
         <div className="mb-6 flex items-center justify-center gap-1.5 sm:gap-2 px-1 max-w-full">
           {STEPS.map((s) => {
             const isActive = s.id === step;
@@ -639,7 +684,6 @@ export default function ProfileSetup() {
           {/* STEP 1 */}
           {step === 1 && (
             <div className="space-y-5">
-              {/* Avatar */}
               <div className="flex flex-col items-center gap-3">
                 <div className="relative">
                   <div className={`w-24 h-24 rounded-full overflow-hidden bg-brand-100 border-4 shadow-md
@@ -708,7 +752,6 @@ export default function ProfileSetup() {
                 </div>
               </div>
 
-              {/* Nome */}
               <div>
                 <label className="block text-[12.5px] font-semibold text-gray-700 mb-1">
                   Nome <span className="text-red-500">*</span>
@@ -726,7 +769,6 @@ export default function ProfileSetup() {
                 <FieldError text={errText('name')} show={touchedSteps[1] && fieldStates.name !== 'ok'} />
               </div>
 
-              {/* Data */}
               <div>
                 <label className="block text-[12.5px] font-semibold text-gray-700 mb-1">
                   Data de nascimento <span className="text-red-500">*</span>
@@ -744,7 +786,6 @@ export default function ProfileSetup() {
                 <FieldError text={errText('birth_date')} show={touchedSteps[1] && fieldStates.birth_date !== 'ok'} />
               </div>
 
-              {/* Género */}
               <div>
                 <div className="flex items-center justify-between mb-2.5">
                   <label className="text-[12.5px] font-semibold text-gray-700">
@@ -892,12 +933,10 @@ export default function ProfileSetup() {
             </div>
           )}
 
-          {/* STEP 3 — WhatsApp (CORRIGIDO para mobile) */}
+          {/* STEP 3 */}
           {step === 3 && (
             <div className="space-y-5">
-              {/* Linha do país + número — empilha em ecrãs muito estreitos */}
               <div className="flex items-stretch gap-2 min-w-0 w-full">
-                {/* Seletor de país */}
                 <div className="relative shrink-0 min-w-0" ref={countryRef}>
                   <button
                     type="button"
@@ -949,7 +988,6 @@ export default function ProfileSetup() {
                   )}
                 </div>
 
-                {/* Input do número */}
                 <div className={`flex-1 min-w-0 flex items-center gap-2 px-2.5 sm:px-3.5 rounded-lg bg-white border transition-all duration-200
                   ${waValid
                     ? 'border-green-400 bg-green-50/40'
@@ -1043,6 +1081,15 @@ export default function ProfileSetup() {
             </div>
           )}
         </div>
+
+        {/* Erro geral (ex: falha de rede) */}
+        {error && (
+          <div className="mt-4 flex items-start gap-2 text-[13px] text-red-700 bg-red-50
+            border border-red-200 rounded-xl px-3.5 py-2.5 animate-[slideDown_200ms_ease-out]">
+            <i className="fi fi-rr-exclamation text-base leading-none mt-0.5 shrink-0" />
+            <span className="min-w-0">{error}</span>
+          </div>
+        )}
 
         {/* Botões */}
         <div className="mt-8 flex items-center gap-2 sm:gap-3">

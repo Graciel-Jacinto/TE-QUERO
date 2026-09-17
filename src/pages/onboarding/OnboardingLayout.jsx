@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Logo from '../../components/Logo';
+import { track } from '../../lib/track';
 
 const steps = [
   { path: '/onboarding/bem-vindo', label: 'Bem-vindo' },
@@ -10,6 +12,19 @@ const steps = [
 export default function OnboardingLayout() {
   const { pathname } = useLocation();
   const currentIdx = Math.max(0, steps.findIndex((s) => pathname.startsWith(s.path)));
+
+  /* ---------- Tracking: cada mudança de rota dentro do onboarding ---------- */
+  useEffect(() => {
+    const current = steps[currentIdx];
+    if (!current) return;
+
+    track('onboarding_step_view', 'started', {
+      step: currentIdx + 1,
+      path: current.path,
+      label: current.label,
+    });
+    // eslint-disable-next-line
+  }, [pathname, currentIdx]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-brand-50 to-white">

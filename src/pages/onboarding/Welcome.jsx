@@ -1,10 +1,23 @@
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { track } from '../../lib/track';
 
 export default function Welcome() {
   const navigate = useNavigate();
   const { profile } = useAuth();
   const name = profile?.name?.split(' ')[0] || 'amigo';
+
+  /* ---------- Tracking: entrada na página ---------- */
+  useEffect(() => {
+    track('welcome_view', 'started');
+  }, []);
+
+  /* ---------- Tracking: clique em "Começar" ---------- */
+  const handleContinue = async () => {
+    await track('welcome_accept', 'success');
+    navigate('/onboarding/regras');
+  };
 
   return (
     <div className="min-h-[calc(100vh-140px)] flex flex-col bg-white">
@@ -35,7 +48,7 @@ export default function Welcome() {
         </p>
 
         <button
-          onClick={() => navigate('/onboarding/regras')}
+          onClick={handleContinue}
           className="mt-12 inline-flex items-center gap-2 px-7 py-3.5 rounded-xl
             bg-brand-600 text-white font-semibold text-[15px]
             hover:bg-brand-700 active:scale-[0.98] transition

@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 const allTabs = [
   { to: '/admin',              label: 'Dashboard',       short: 'Painel',     icon: 'fi-rr-chart-pie',      fill: 'fi-sr-chart-pie',      end: true },
   { to: '/admin/contas',       label: 'Contas',          short: 'Contas',     icon: 'fi-rr-users',          fill: 'fi-sr-users' },
+  { to: '/admin/onboarding',   label: 'Monitorização',   short: 'Onboarding', icon: 'fi-rr-chart-histogram', fill: 'fi-sr-chart-histogram' },
   { to: '/admin/verificacoes', label: 'Verificações',    short: 'Verificar',  icon: 'fi-rr-badge-check',    fill: 'fi-sr-badge-check' },
   { to: '/admin/denuncias',    label: 'Denúncias',       short: 'Denúncias',  icon: 'fi-rr-flag',           fill: 'fi-sr-flag' },
   { to: '/admin/admins',       label: 'Administradores', short: 'Admins',     icon: 'fi-rr-shield-check',   fill: 'fi-sr-shield-check' },

@@ -32,6 +32,7 @@ import AdminReports from './pages/admin/AdminReports';
 import AdminVerifications from './pages/admin/AdminVerifications';
 import AdminPlans from './pages/admin/AdminPlans';
 import AdminFeatureFlags from './pages/admin/FeatureFlags';
+import OnboardingMonitor from './pages/admin/OnboardingMonitor';   // ← NOVO
 
 export default function App() {
   return (
@@ -80,11 +81,12 @@ export default function App() {
               <Route path="/admin" element={<AdminLayout />}>
                 <Route index element={<AdminDashboard />} />
                 <Route path="contas" element={<AdminAccounts />} />
+                <Route path="onboarding" element={<OnboardingMonitor />} />   {/* ← NOVO */}
                 <Route path="verificacoes" element={<AdminVerifications />} />
                 <Route path="denuncias" element={<AdminReports />} />
                 <Route path="admins" element={<AdminAdmins />} />
                 <Route path="planos" element={<AdminPlans />} />
-                <Route path="flags" element={<AdminFeatureFlags />} />   {/* ← NOVO */}
+                <Route path="flags" element={<AdminFeatureFlags />} />
               </Route>
             </Route>
 
