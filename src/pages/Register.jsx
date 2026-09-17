@@ -24,7 +24,7 @@ function maxBirthDate(minAge = 18) {
 
 export default function Register() {
   const navigate = useNavigate();
-  const { user, profile, isAdmin, loading: authLoading } = useAuth();
+  const { user, profile, isAdmin, loading: authLoading, refreshProfile } = useAuth();
 
   const [form, setForm] = useState({
     name: '',
@@ -74,7 +74,7 @@ export default function Register() {
     return { level: 4, label: 'Forte', color: 'bg-green-500' };
   })();
 
-  /* ---------- Submissão ---------- */
+  /* ---------- Submissão (LOGIN IMEDIATO, sem confirmação de email) ---------- */
   const handleRegister = async (e) => {
     e.preventDefault();
     setError('');
@@ -90,9 +90,7 @@ export default function Register() {
       return setError('Data de nascimento inválida.');
     }
     if (computedAge < 18) {
-      return setError(
-        'Tens de ter pelo menos 18 anos para usar o Te Quero.'
-      );
+      return setError('Tens de ter pelo menos 18 anos para usar o Te Quero.');
     }
     if (computedAge > 120) {
       return setError('Data de nascimento inválida. Verifica o ano.');
@@ -109,21 +107,27 @@ export default function Register() {
     }
 
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
-      email: form.email,
+
+    const email = form.email.trim().toLowerCase();
+    const name = form.name.trim();
+    const acceptedAt = new Date().toISOString();
+
+    const { data, error: signErr } = await supabase.auth.signUp({
+      email,
       password: form.password,
       options: {
         data: {
-          name: form.name.trim(),
+          name,
           birth_date: form.birth_date,
+          rules_accepted_at: acceptedAt,
         },
-        emailRedirectTo: `${window.location.origin}/onboarding/bem-vindo`,
+        // Sem emailRedirectTo — não usamos confirmação
       },
     });
-    setLoading(false);
 
-    if (error) {
-      const msg = error.message.toLowerCase();
+    if (signErr) {
+      setLoading(false);
+      const msg = signErr.message.toLowerCase();
       if (msg.includes('already') || msg.includes('user already registered')) {
         return setError('Já existe uma conta com este email.');
       }
@@ -136,9 +140,51 @@ export default function Register() {
       if (msg.includes('menores de 18') || msg.includes('check_violation')) {
         return setError('Tens de ter pelo menos 18 anos para usar o Te Quero.');
       }
-      return setError(error.message);
+      return setError(signErr.message);
     }
 
+    const newUser = data?.user;
+    const session = data?.session;
+
+    // ⚠️ Se a confirmação de email ainda estiver ligada no Supabase,
+    // não há sessão e o utilizador teria de confirmar. Avisamos claramente.
+    if (!session) {
+      setLoading(false);
+      return setError(
+        'A confirmação de email ainda está ativa no Supabase. ' +
+        'Desliga em Authentication → Providers → Email → "Confirm email".'
+      );
+    }
+
+    // ✅ Sessão ativa → login imediato. Garantimos a linha em profiles.
+    if (newUser) {
+      const { error: profErr } = await supabase
+        .from('profiles')
+        .upsert(
+          {
+            id: newUser.id,
+            name,
+            email,
+            birth_date: form.birth_date,
+            rules_accepted_at: acceptedAt,
+          },
+          { onConflict: 'id' }
+        );
+
+      if (profErr) {
+        // Não bloqueamos o login — o trigger SQL já criou a linha.
+        console.warn('[Register] profiles upsert falhou:', profErr.message);
+      }
+
+      // Recarrega o profile no AuthContext antes de navegar
+      if (typeof refreshProfile === 'function') {
+        try { await refreshProfile(); } catch (_) { /* noop */ }
+      }
+    }
+
+    setLoading(false);
+
+    // 🚀 Entra direto no onboarding, sem passar pelo login
     navigate('/onboarding/bem-vindo', { replace: true });
   };
 
@@ -205,7 +251,6 @@ export default function Register() {
               ))}
             </ul>
 
-            {/* Aviso 18+ */}
             <div className="mt-8 inline-flex items-center gap-2.5 px-4 py-2.5 rounded-2xl
               bg-white/10 backdrop-blur border border-white/20">
               <i className="fi fi-sr-shield-check text-white text-base leading-none" />
@@ -318,7 +363,7 @@ export default function Register() {
               </div>
             </div>
 
-            {/* Data de nascimento — com limite máximo = 18 anos atrás */}
+            {/* Data de nascimento */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 Data de nascimento
@@ -344,7 +389,6 @@ export default function Register() {
                 />
               </div>
 
-              {/* Feedback dinâmico */}
               {showAgeError ? (
                 <div className="mt-1.5 flex items-start gap-2 text-xs text-red-600
                   bg-red-50 border border-red-200 rounded-lg px-2.5 py-2">
@@ -474,12 +518,11 @@ export default function Register() {
                 </span>
               </label>
 
-              {/* Confirmação explícita 18+ */}
               <label className="flex items-start gap-2.5 cursor-pointer select-none
                 p-3 rounded-xl border border-gray-200 hover:bg-gray-50 transition">
                 <input
                   type="checkbox"
-                  checked={form.birth_date && isAdult}
+                  checked={!!(form.birth_date && isAdult)}
                   disabled
                   readOnly
                   className="mt-0.5 w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500/40 shrink-0
