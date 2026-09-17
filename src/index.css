@@ -16,8 +16,23 @@
   --font-sans: 'Inter', system-ui, sans-serif;
 }
 
+/* ============================================================
+   RESET CRÍTICO MOBILE — não mexer sem cuidado
+============================================================ */
 html, body, #root {
+  margin: 0;
+  padding: 0;
   height: 100%;
+  /* Bloqueia scroll do body — só o conteúdo interno faz scroll.
+     Essencial para o bottom nav ficar SEMPRE visível em mobile. */
+  overflow: hidden;
+  /* Sem "puxão" elástico do iOS */
+  overscroll-behavior: none;
+  /* Evita zoom automático em iOS */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* Remove highlight azul ao tocar em links no Android */
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -27,7 +42,25 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
-/* Scrollbar personalizada */
+
+/* ============================================================
+   INPUTS — evita zoom automático no iOS
+============================================================ */
+input, select, textarea {
+  /* iOS dá zoom se font-size < 16px ao focar */
+  font-size: 16px;
+}
+
+/* Em ecrãs maiores, volta ao tamanho normal do teu design */
+@media (min-width: 640px) {
+  input, select, textarea {
+    font-size: inherit;
+  }
+}
+
+/* ============================================================
+   SCROLLBAR personalizada (só desktop)
+============================================================ */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -51,4 +84,14 @@ body {
 * {
   scrollbar-width: thin;
   scrollbar-color: #fb7191 #f9fafb;
+}
+
+/* Em mobile, esconde a scrollbar visual (não precisa) */
+@media (max-width: 767px) {
+  ::-webkit-scrollbar {
+    display: none;
+  }
+  * {
+    scrollbar-width: none;
+  }
 }
